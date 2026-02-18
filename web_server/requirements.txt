@@ -1,0 +1,6 @@
+flask==2.3.3
+deepgram-sdk>=3.0.0
+pyaudio>=0.2.11
+numpy>=1.21.0
+requests>=2.25.1
+python-dotenv>=0.19.0

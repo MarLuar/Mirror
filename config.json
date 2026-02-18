@@ -1,0 +1,20 @@
+{
+  "recording": {
+    "duration": 10,
+    "sample_rate": 44100,
+    "chunk_size": 1024,
+    "channels": 1
+  },
+  "analysis": {
+    "aspects": ["fluency", "grammar", "vocabulary", "clarity", "confidence", "pronunciation", "emotion"]
+  },
+  "api": {
+    "timeout": 30
+  },
+  "esp32": {
+    "ip_address": "192.168.50.75",
+    "computer_ip": "192.168.50.234",
+    "prompt_port": 1235,
+    "audio_port": 1234
+  }
+}
