@@ -29,7 +29,7 @@ STREAM_URL = f"http://{ESP32_IP}:81/stream"
 STATUS_URL = f"http://{ESP32_IP}/status"
 CONTROL_URL = f"http://{ESP32_IP}/control"
 OUTPUT_DIR = "recordings"
-CHECK_INTERVAL = 0.5  # seconds
+CHECK_INTERVAL = 1.0  # seconds - increased to prevent rapid toggling
 
 # State
 recording = False
@@ -37,6 +37,8 @@ ffmpeg_process = None
 connection_ok = False
 error_count = 0
 MAX_ERRORS_BEFORE_PRINT = 5
+recording_start_time = None
+MIN_RECORDING_DURATION = 3.0  # Minimum seconds before allowing stop (prevents rapid toggling)
 
 
 def ensure_output_dir():
@@ -53,21 +55,38 @@ def get_timestamp():
 
 def start_recording():
     """Start ffmpeg recording process."""
-    global ffmpeg_process
+    global ffmpeg_process, recording_start_time
     ensure_output_dir()
+    recording_start_time = time.time()  # Track when recording started
     
     filename = os.path.join(OUTPUT_DIR, f"recording_{get_timestamp()}.mp4")
     print(f"\n{'='*50}")
     print(f"[RECORDING STARTED]")
     print(f"Output file: {filename}")
+    print(f"Stream URL: {STREAM_URL}")
     print(f"{'='*50}\n")
     
+    # First, test if stream is accessible
+    print("Testing stream accessibility...")
     try:
+        import urllib.request
+        req = urllib.request.Request(STREAM_URL, method='HEAD')
+        req.add_header('Range', 'bytes=0-1024')
+        with urllib.request.urlopen(req, timeout=5) as response:
+            print(f"  ✓ Stream is accessible (Status: {response.status})")
+    except Exception as e:
+        print(f"  ⚠ Stream test warning: {e}")
+        print("  Continuing anyway...")
+    
+    try:
+        # Create a log file for ffmpeg errors
+        log_file = os.path.join(OUTPUT_DIR, f"ffmpeg_{get_timestamp()}.log")
+        
         ffmpeg_process = subprocess.Popen(
             [
                 "ffmpeg",
                 "-hide_banner",
-                "-loglevel", "error",
+                "-loglevel", "warning",  # Show warnings for debugging
                 "-f", "mjpeg",          # Force MJPEG format
                 "-reconnect", "1",
                 "-reconnect_streamed", "1",
@@ -86,14 +105,19 @@ def start_recording():
                 filename
             ],
             stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL
+            stderr=open(log_file, 'w')  # Log errors to file instead of hiding
         )
+        print(f"  ffmpeg PID: {ffmpeg_process.pid}")
+        print(f"  ffmpeg log: {log_file}")
         return True
     except FileNotFoundError:
         print("ERROR: ffmpeg not found! Please install ffmpeg.")
         print("  Ubuntu/Debian: sudo apt-get install ffmpeg")
         print("  macOS: brew install ffmpeg")
         print("  Windows: https://ffmpeg.org/download.html")
+        return False
+    except Exception as e:
+        print(f"ERROR starting ffmpeg: {e}")
         return False
 
 
@@ -105,19 +129,44 @@ def stop_recording():
         print("[RECORDING STOPPED]")
         print("Finalizing video file...")
         
-        # Send SIGTERM for graceful shutdown
-        ffmpeg_process.terminate()
+        # Get the return code if process already exited
+        return_code = ffmpeg_process.poll()
         
-        # Wait for ffmpeg to finish (max 5 seconds)
-        try:
-            ffmpeg_process.wait(timeout=5)
-            print("Video saved successfully!")
-        except subprocess.TimeoutExpired:
-            print("Force stopping ffmpeg...")
-            ffmpeg_process.kill()
-            ffmpeg_process.wait()
+        if return_code is None:
+            # Process is still running, send SIGTERM for graceful shutdown
+            print("  Stopping ffmpeg gracefully...")
+            ffmpeg_process.terminate()
+            
+            # Wait for ffmpeg to finish (max 10 seconds)
+            try:
+                return_code = ffmpeg_process.wait(timeout=10)
+                if return_code == 0:
+                    print("  ✓ ffmpeg stopped successfully")
+                else:
+                    print(f"  ⚠ ffmpeg exited with code: {return_code}")
+            except subprocess.TimeoutExpired:
+                print("  ⚠ ffmpeg didn't stop in time, force killing...")
+                ffmpeg_process.kill()
+                ffmpeg_process.wait()
+        else:
+            print(f"  ⚠ ffmpeg already exited with code: {return_code}")
         
         ffmpeg_process = None
+        
+        # Check if video file was created and has content
+        import glob
+        latest_files = sorted(glob.glob(os.path.join(OUTPUT_DIR, "recording_*.mp4")), 
+                             key=os.path.getmtime, reverse=True)
+        if latest_files:
+            latest_file = latest_files[0]
+            size = os.path.getsize(latest_file)
+            if size == 0:
+                print(f"  ✗ WARNING: Video file is empty ({size} bytes)")
+                print("  Check ffmpeg log file for errors")
+            else:
+                size_mb = size / (1024 * 1024)
+                print(f"  ✓ Video saved: {os.path.basename(latest_file)} ({size_mb:.2f} MB)")
+        
         print(f"{'='*50}\n")
 
 
@@ -246,11 +295,19 @@ def main():
         
         if is_recording_requested is not None:
             if is_recording_requested and not recording:
+                # Start recording
                 if start_recording():
                     recording = True
             elif not is_recording_requested and recording:
-                stop_recording()
-                recording = False
+                # Check minimum recording duration before stopping
+                elapsed = time.time() - recording_start_time if recording_start_time else 0
+                if elapsed >= MIN_RECORDING_DURATION:
+                    stop_recording()
+                    recording = False
+                else:
+                    # Too soon to stop, ignore the stop request
+                    if int(elapsed) % 1 == 0:  # Print every second
+                        print(f"  [Recording for {elapsed:.1f}s, minimum {MIN_RECORDING_DURATION}s]")
         
         time.sleep(CHECK_INTERVAL)
 
