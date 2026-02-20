@@ -13,9 +13,10 @@ __pycache__/
 # Environment variables
 .env
 
-# Recordings (large audio files)
+# Recordings (large audio/video files)
 recordings/*.wav
 recordings/*.json
+recordings/*.mp4
 !recordings/.gitkeep
 
 # IDE
