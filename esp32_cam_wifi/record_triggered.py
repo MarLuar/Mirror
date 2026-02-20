@@ -93,20 +93,22 @@ def start_recording():
                 "ffmpeg",
                 "-hide_banner",
                 "-loglevel", "warning",
-                "-fflags", "+discardcorrupt",  # Discard corrupt packets
+                "-fflags", "+discardcorrupt+igndts",  # Discard corrupt packets, ignore DTS
+                "-flags", "+low_delay",   # Low delay mode
                 "-rw_timeout", "5000000",  # 5 second read timeout for network
                 "-reconnect", "1",
                 "-reconnect_streamed", "1",
                 "-reconnect_delay_max", "5",
                 "-thread_queue_size", "4096",
                 "-i", STREAM_URL,
-                # Re-encode with proper frame timing to fix fast-forward
+                # Fix fast-forward: use fps filter to normalize frame rate, then setpts to fix timestamps
+                "-vf", "fps=fps=15:round=near,setpts=N/FRAME_RATE/TB",
                 "-c:v", "libx264",
-                "-preset", "ultrafast",  # Fastest preset to reduce latency
-                "-tune", "zerolatency",  # Tune for low latency streaming
-                "-crf", "28",            # Lower quality but faster encoding
-                "-r", "15",              # Force 15fps output
-                "-pix_fmt", "yuv420p",   # Standard pixel format
+                "-preset", "ultrafast",
+                "-tune", "zerolatency",
+                "-crf", "28",
+                "-r", "15",
+                "-pix_fmt", "yuv420p",
                 "-movflags", "+faststart",
                 "-y",
                 filename

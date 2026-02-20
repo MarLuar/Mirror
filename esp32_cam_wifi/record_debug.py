@@ -17,28 +17,30 @@ os.makedirs(OUTPUT_DIR, exist_ok=True)
 filename = os.path.join(OUTPUT_DIR, f"debug_recording_{get_timestamp()}.mp4")
 
 print(f"Recording to: {filename}")
+print(f"Stream: {STREAM_URL}")
 print("Press Ctrl+C to stop")
 print("")
 
-# Debug version - shows ffmpeg output
-# Uses ultrafast preset and zerolatency tune for minimal delay
-# Fixed 15fps output to prevent fast-forward/slow-motion issues
+# Debug version - uses fps filter + setpts to fix fast-forward issue
 cmd = [
     "ffmpeg",
     "-hide_banner",
-    "-loglevel", "info",  # Show info for debugging
-    "-fflags", "+discardcorrupt",
+    "-loglevel", "info",
+    "-fflags", "+discardcorrupt+igndts",
+    "-flags", "+low_delay",
     "-reconnect", "1",
     "-reconnect_streamed", "1",
     "-reconnect_delay_max", "5",
     "-thread_queue_size", "4096",
     "-i", STREAM_URL,
+    # Key fix: fps filter normalizes frame rate, setpts fixes timestamps
+    "-vf", "fps=fps=15:round=near,setpts=N/FRAME_RATE/TB",
     "-c:v", "libx264",
-    "-preset", "ultrafast",  # Fastest encoding to prevent packet loss
-    "-tune", "zerolatency",  # Optimize for low latency
-    "-crf", "28",            # Balance between quality and speed
-    "-r", "15",              # Force 15fps output (prevents fast-forward)
-    "-pix_fmt", "yuv420p",   # Standard pixel format
+    "-preset", "ultrafast",
+    "-tune", "zerolatency",
+    "-crf", "28",
+    "-r", "15",
+    "-pix_fmt", "yuv420p",
     "-movflags", "+faststart",
     "-y",
     filename
@@ -55,13 +57,13 @@ except KeyboardInterrupt:
 print(f"\n\nFile saved: {filename}")
 
 # Show video info
-print("\nVideo info:")
-os.system(f"ffprobe -v error -show_entries stream=avg_frame_rate,r_frame_rate,duration -of default=noprint_wrappers=1 {filename}")
-
-# Check file size
-if os.path.exists(filename):
-    size = os.path.getsize(filename)
-    if size == 0:
-        print("\n⚠️ WARNING: File is empty!")
-    else:
-        print(f"\n✓ File size: {size / (1024*1024):.2f} MB")
+if os.path.exists(filename) and os.path.getsize(filename) > 0:
+    print("\nVideo info:")
+    os.system(f"ffprobe -v error -show_entries stream=r_frame_rate,avg_frame_rate,duration -of default=noprint_wrappers=1 {filename}")
+    
+    # Check duration vs file creation time
+    import time
+    duration_sec = os.path.getsize(filename) / (100 * 1024)  # Rough estimate: ~100KB per second
+    print(f"\nEstimated duration: ~{duration_sec:.1f} seconds")
+else:
+    print("\n⚠️ File is empty or doesn't exist")
