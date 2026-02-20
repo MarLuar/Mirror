@@ -70,10 +70,12 @@ def start_recording():
     print("Testing stream accessibility...")
     try:
         import urllib.request
-        req = urllib.request.Request(STREAM_URL, method='HEAD')
+        # Use GET with a small range to test (HEAD might not be supported)
+        req = urllib.request.Request(STREAM_URL)
         req.add_header('Range', 'bytes=0-1024')
         with urllib.request.urlopen(req, timeout=5) as response:
-            print(f"  ✓ Stream is accessible (Status: {response.status})")
+            content_type = response.headers.get('Content-Type', 'unknown')
+            print(f"  ✓ Stream is accessible (Status: {response.status}, Content-Type: {content_type})")
     except Exception as e:
         print(f"  ⚠ Stream test warning: {e}")
         print("  Continuing anyway...")
@@ -82,25 +84,23 @@ def start_recording():
         # Create a log file for ffmpeg errors
         log_file = os.path.join(OUTPUT_DIR, f"ffmpeg_{get_timestamp()}.log")
         
+        # Try simple copy mode first for testing, then fall back to re-encoding if needed
+        # The stream from ESP32-CAM is already MJPEG, we can copy it directly
+        # But for compatibility we'll use libx264 with proper settings
+        
         ffmpeg_process = subprocess.Popen(
             [
                 "ffmpeg",
                 "-hide_banner",
-                "-loglevel", "warning",  # Show warnings for debugging
-                "-f", "mjpeg",          # Force MJPEG format
+                "-loglevel", "info",    # Show info for debugging (change to warning later)
+                "-rw_timeout", "5000000",  # 5 second read timeout for network
                 "-reconnect", "1",
                 "-reconnect_streamed", "1",
                 "-reconnect_delay_max", "5",
-                "-thread_queue_size", "512",  # Increase input buffer
+                "-thread_queue_size", "4096",  # Larger input buffer for network streams
                 "-i", STREAM_URL,
-                "-c:v", "libx264",
-                "-preset", "superfast",
-                "-crf", "23",          # Slightly higher CRF for smoother playback
-                "-r", "15",             # Force output to 15fps
-                "-vf", "fps=15,format=yuv420p",  # Video filter: normalize fps and pixel format
-                "-vsync", "cfr",        # Constant frame rate - prevents fast/slow motion
-                "-max_muxing_queue_size", "1024",  # Increase muxing buffer
-                "-movflags", "+faststart",
+                "-c:v", "copy",         # First try copying the stream directly (no re-encoding)
+                "-movflags", "+faststart+frag_keyframe",
                 "-y",
                 filename
             ],
@@ -109,6 +109,7 @@ def start_recording():
         )
         print(f"  ffmpeg PID: {ffmpeg_process.pid}")
         print(f"  ffmpeg log: {log_file}")
+        print(f"  Mode: copy (no re-encoding)")
         return True
     except FileNotFoundError:
         print("ERROR: ffmpeg not found! Please install ffmpeg.")
