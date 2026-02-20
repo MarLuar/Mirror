@@ -50,13 +50,13 @@ set "HH=%dt:~8,2%" & set "Min=%dt:~10,2%" & set "Sec=%dt:~12,2%"
 set "OUTPUT=%OUTPUT_DIR%\recording_%YYYY%%MM%%DD%_%HH%%Min%%Sec%.mp4"
 echo Starting continuous recording to: %OUTPUT%
 echo Press Ctrl+C to stop
-ffmpeg -hide_banner -loglevel error -f mjpeg -reconnect 1 -reconnect_streamed 1 -reconnect_delay_max 5 -fflags +discardcorrupt+genpts -use_wallclock_as_timestamps 1 -i "%STREAM_URL%" -c:v libx264 -preset superfast -crf 18 -filter:v "setpts='N/(15*TB)',fps=15" -r 15 -pix_fmt yuv420p -movflags +faststart -y "%OUTPUT%"
+ffmpeg -hide_banner -loglevel error -f mjpeg -reconnect 1 -reconnect_streamed 1 -reconnect_delay_max 5 -thread_queue_size 512 -i "%STREAM_URL%" -c:v libx264 -preset superfast -crf 23 -r 15 -vf "fps=15,format=yuv420p" -vsync cfr -max_muxing_queue_size 1024 -movflags +faststart -y "%OUTPUT%"
 goto :end
 
 :segment
 echo Recording in 5-minute segments to: %OUTPUT_DIR%\
 echo Press Ctrl+C to stop
-ffmpeg -hide_banner -loglevel error -f mjpeg -reconnect 1 -reconnect_streamed 1 -reconnect_delay_max 5 -fflags +discardcorrupt+genpts -use_wallclock_as_timestamps 1 -i "%STREAM_URL%" -c:v libx264 -preset superfast -crf 18 -filter:v "setpts='N/(15*TB)',fps=15" -r 15 -pix_fmt yuv420p -f segment -segment_time 300 -reset_timestamps 1 -strftime 1 "%OUTPUT_DIR%\segment_%%Y%%m%%d_%%H%%M%%S.mp4"
+ffmpeg -hide_banner -loglevel error -f mjpeg -reconnect 1 -reconnect_streamed 1 -reconnect_delay_max 5 -thread_queue_size 512 -i "%STREAM_URL%" -c:v libx264 -preset superfast -crf 23 -r 15 -vf "fps=15,format=yuv420p" -vsync cfr -max_muxing_queue_size 1024 -f segment -segment_time 300 -reset_timestamps 1 -strftime 1 "%OUTPUT_DIR%\segment_%%Y%%m%%d_%%H%%M%%S.mp4"
 goto :end
 
 :timestamp

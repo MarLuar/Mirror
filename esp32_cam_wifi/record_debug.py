@@ -27,15 +27,15 @@ cmd = [
     "-reconnect", "1",
     "-reconnect_streamed", "1",
     "-reconnect_delay_max", "5",
-    "-fflags", "+discardcorrupt+genpts",
-    "-use_wallclock_as_timestamps", "1",
+    "-thread_queue_size", "512",  # Increase input buffer
     "-i", STREAM_URL,
     "-c:v", "libx264",
     "-preset", "superfast",
-    "-crf", "18",
-    "-filter:v", "setpts='N/(15*TB)',fps=15",
-    "-r", "15",
-    "-pix_fmt", "yuv420p",
+    "-crf", "23",          # Slightly higher CRF for smoother playback
+    "-r", "15",             # Force output to 15fps
+    "-vf", "fps=15,format=yuv420p",  # Video filter: normalize fps and pixel format
+    "-vsync", "cfr",        # Constant frame rate - prevents fast/slow motion
+    "-max_muxing_queue_size", "1024",  # Increase muxing buffer
     "-movflags", "+faststart",
     "-y",
     filename

@@ -112,26 +112,32 @@ Open `http://<ESP32_IP>` in a browser (replace with actual IP from Serial Monito
 
 ## FFmpeg Recording Commands
 
+> **Note:** The recording scripts use `-vsync cfr` (constant frame rate) and `-r 15` to prevent fast-forward/slow-motion issues that can occur with variable frame rate MJPEG streams.
+
 ### Basic Recording (Auto-detect when recording header is present)
 ```bash
 # Simple recording - saves when X-Recording header is 1
 ffmpeg -i "http://<ESP32_IP>:81/stream" -c copy output.mp4  # Replace <ESP32_IP> with actual IP
 ```
 
-### Continuous Recording with Timestamp
+### Continuous Recording with Timestamp (Recommended)
 ```bash
-ffmpeg -i "http://<ESP32_IP>:81/stream" \
-  -c copy -f segment -segment_time 300 \
-  -reset_timestamps 1 -strftime 1 \
-  "recording_%Y%m%d_%H%M%S.mp4"  # Replace <ESP32_IP> with actual IP
+# Stable recording with fixed frame rate to prevent fast-forward issues
+ffmpeg -f mjpeg -reconnect 1 -reconnect_streamed 1 -reconnect_delay_max 5 \
+  -thread_queue_size 512 -i "http://<ESP32_IP>:81/stream" \
+  -c:v libx264 -preset superfast -crf 23 -r 15 \
+  -vf "fps=15,format=yuv420p" -vsync cfr \
+  -f segment -segment_time 300 -reset_timestamps 1 -strftime 1 \
+  "recording_%Y%m%d_%H%M%S.mp4"
 ```
 
 ### Record with Reconnection (robust)
 ```bash
-ffmpeg -reconnect 1 -reconnect_streamed 1 -reconnect_delay_max 5 \
-  -i "http://<ESP32_IP>:81/stream" \
-  -c copy -f segment -segment_time 60 \
-  "segment_%03d.mp4"  # Replace <ESP32_IP> with actual IP
+ffmpeg -f mjpeg -reconnect 1 -reconnect_streamed 1 -reconnect_delay_max 5 \
+  -thread_queue_size 512 -i "http://<ESP32_IP>:81/stream" \
+  -c:v libx264 -preset superfast -crf 23 -r 15 \
+  -vf "fps=15,format=yuv420p" -vsync cfr \
+  "output.mp4"
 ```
 
 ### View Live Stream (no recording)
@@ -141,8 +147,11 @@ ffplay "http://<ESP32_IP>:81/stream"  # Replace <ESP32_IP> with actual IP
 
 ### Record with Date-based Filename
 ```bash
-ffmpeg -i "http://<ESP32_IP>:81/stream" \
-  -c copy "recording_$(date +%Y%m%d_%H%M%S).mp4"  # Replace <ESP32_IP> with actual IP
+ffmpeg -f mjpeg -reconnect 1 -reconnect_streamed 1 -reconnect_delay_max 5 \
+  -thread_queue_size 512 -i "http://<ESP32_IP>:81/stream" \
+  -c:v libx264 -preset superfast -crf 23 -r 15 \
+  -vf "fps=15,format=yuv420p" -vsync cfr \
+  "recording_$(date +%Y%m%d_%H%M%S).mp4"
 ```
 
 ### Python Script for Trigger-based Recording
@@ -250,6 +259,22 @@ build_flags =
 - Reduce resolution: `config.frame_size = FRAMESIZE_CIF` (400x296)
 - Lower frame rate in ffmpeg: `-r 15`
 - Use wired connection between laptop and router if possible
+
+### Recording Plays Too Fast (Fast-Forward Effect)
+This happens when ffmpeg doesn't properly handle the variable frame rate from the ESP32-CAM stream.
+
+**Solution:** Use the provided recording scripts which include:
+- `-vsync cfr` - Forces constant frame rate output
+- `-r 15` - Sets output frame rate to 15fps
+- `-vf "fps=15,format=yuv420p"` - Normalizes frame rate and pixel format
+- `-thread_queue_size 512` - Increases input buffer for smoother capture
+
+**Example fixed command:**
+```bash
+ffmpeg -f mjpeg -i "http://10.42.0.82:81/stream" \
+  -c:v libx264 -r 15 -vf "fps=15,format=yuv420p" -vsync cfr \
+  output.mp4
+```
 
 ## License
 
