@@ -18,7 +18,7 @@ def test_udp_prompt_sending():
     sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
 
     # ESP32 IP and port from config
-    esp32_ip = config.get("esp32", {}).get("ip_address", "192.168.50.75")
+    esp32_ip = config.get("esp32", {}).get("ip_address", "10.42.0.156")
     prompt_port = config.get("esp32", {}).get("prompt_port", 1235)
     
     # Test prompt

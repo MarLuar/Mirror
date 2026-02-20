@@ -112,7 +112,7 @@ class IntegratedSpeechAnalysisApp:
         try:
             self.prompt_socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
             # Get ESP32 configuration from config file
-            self.esp32_ip = self.config.get("esp32", {}).get("ip_address", "192.168.50.75")
+            self.esp32_ip = self.config.get("esp32", {}).get("ip_address", "10.42.0.156")
             self.prompt_port = self.config.get("esp32", {}).get("prompt_port", 1235)
             print(f"Initialized prompt sending to ESP32 at {self.esp32_ip}:{self.prompt_port}")
         except Exception as e:

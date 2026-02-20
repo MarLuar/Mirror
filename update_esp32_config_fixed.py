@@ -13,8 +13,8 @@ def update_esp32_config():
         config = json.load(f)
 
     # Get IP addresses from config
-    esp32_ip = config.get("esp32", {}).get("ip_address", "192.168.50.75")
-    computer_ip = config.get("esp32", {}).get("computer_ip", "192.168.50.130")
+    esp32_ip = config.get("esp32", {}).get("ip_address", "10.42.0.156")
+    computer_ip = config.get("esp32", {}).get("computer_ip", "10.42.0.1")
     
     # Path to the ESP32 Arduino code
     esp32_code_path = os.path.join(

@@ -12,8 +12,9 @@
     "timeout": 30
   },
   "esp32": {
-    "ip_address": "192.168.50.75",
-    "computer_ip": "192.168.50.234",
+    "_comment": "DHCP Assigned - main_firmware IP: 10.42.0.156",
+    "ip_address": "10.42.0.156",
+    "computer_ip": "10.42.0.1",
     "prompt_port": 1235,
     "audio_port": 1234
   }

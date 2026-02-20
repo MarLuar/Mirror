@@ -33,7 +33,7 @@ def print_troubleshooting_guide():
     print("   - If no streaming messages appear, microphone isn't capturing audio\n")
     
     print("5. NETWORK DIAGNOSTICS")
-    print("   - Ping ESP32: ping 192.168.50.75")
+    print("   - Ping ESP32: ping 10.42.0.156")
     print("   - Check if firewall is blocking incoming UDP on port 1234 (should be allowed)\n")
     
     print("QUICK TEST PROCEDURE:")

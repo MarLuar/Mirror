@@ -16,8 +16,9 @@ Before flashing your ESP32, update the `config.json` file in the main directory 
 ```json
 {
   "esp32": {
-    "ip_address": "192.168.50.75",      // The static IP for your ESP32
-    "computer_ip": "192.168.50.234",    // Your computer's IP address
+    "_comment": "Using DHCP - Check Serial Monitor for actual IPs",
+    "ip_address": "192.168.100.75",     // UPDATE after checking Serial Monitor
+    "computer_ip": "192.168.100.128",   // Your computer's IP address
     "prompt_port": 1235,                // Port for prompt data
     "audio_port": 1234                  // Port for audio data
   }
@@ -65,10 +66,11 @@ python3 update_esp32_config_fixed.py
 - Verify the ESP32 is properly receiving and transmitting audio
 
 ## Network Configuration
-The default network configuration assumes:
-- Router gateway: 192.168.50.254
-- Subnet mask: 255.255.255.0
-- ESP32 static IP: 192.168.50.75 (configurable)
-- Computer IP: 192.168.50.234 (automatically detected)
+The network configuration uses DHCP (automatic IP assignment):
+- WiFi SSID: `ubuntu`
+- WiFi Password: `ubuntubuntu`
+- ESP32 Audio IP: `10.42.0.156` (check Serial Monitor)
+- ESP32-CAM IP: `10.42.0.82` (check Serial Monitor)
+- Computer WiFi IP: `10.42.0.1` (on ubuntu hotspot)
 
-Adjust these settings in the Arduino code if your network uses different addressing.
+> **Note:** Both ESP32 devices and your laptop must be on the same 10.42.0.x network to communicate.

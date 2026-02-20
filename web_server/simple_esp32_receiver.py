@@ -165,9 +165,9 @@ def index():
             </div>
 
             <h2>System Info</h2>
-            <p><strong>Laptop IP:</strong> 192.168.50.130</p>
+            <p><strong>Laptop IP:</strong> 10.42.0.1 (WiFi on ubuntu hotspot)</p>
             <p><strong>Listening on port:</strong> 8000</p>
-            <p><strong>Expected ESP32 IP:</strong> 192.168.50.72</p>
+            <p><strong>Expected ESP32 IP:</strong> 10.42.0.156</p>
         </div>
 
         <script>

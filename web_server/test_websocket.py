@@ -21,7 +21,7 @@ if __name__ == "__main__":
     websocket.enableTrace(True)
     
     # Create WebSocket connection
-    ws = websocket.WebSocketApp("ws://192.168.50.130:8000/audio_ws",
+    ws = websocket.WebSocketApp("ws://10.42.0.1:8000/audio_ws",
                               on_open=on_open,
                               on_message=on_message,
                               on_error=on_error,

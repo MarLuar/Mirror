@@ -41,7 +41,7 @@ This project allows you to use an ESP32 with an INMP441 I2S microphone to captur
    python web_server/simple_esp32_receiver.py
    ```
 
-   The server will start and show its IP address (e.g., `Running on http://192.168.50.130:8000`)
+   The server will start and show its IP address (e.g., `Running on http://10.42.0.1:8000`)
 
 ### 2. ESP32 Setup
 

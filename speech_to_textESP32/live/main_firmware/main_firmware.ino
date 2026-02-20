@@ -22,16 +22,16 @@
 #define TRIGGER_BUTTON 18
 
 // WiFi Credentials
-const char* ssid = "PLDTHOMEFIBR21653";
-const char* password = "Aloygwapo1234@";
+const char* ssid = "ubuntu";
+const char* password = "ubuntubuntu";
 
-// Static IP Configuration
-IPAddress local_IP(192, 168, 50, 75);      // ESP32's static IP
-IPAddress gateway(192, 168, 50, 254);      // Router's IP
-IPAddress subnet(255, 255, 255, 0);        // Subnet mask
+// DHCP Configuration (Auto IP Assignment)
+// The ESP32 will automatically get an IP from the hotspot
+// Check Serial Monitor to see the assigned IP
 
 // UDP Configuration - Target your laptop's IP address
-const char* udpAddress = "192.168.50.234";  // Your laptop's IP address
+// NOTE: Update this to your computer's actual IP on the hotspot
+const char* udpAddress = "10.42.0.1";  // Your laptop's WiFi IP on ubuntu hotspot
 const int audioPort = 1234;                 // Port for audio data
 const int promptPort = 1235;                // Port for prompt data
 
@@ -393,11 +393,7 @@ void setup() {
   // Initialize OLED first
   initOLED();
 
-  // Configure static IP
-  if (!WiFi.config(local_IP, gateway, subnet)) {
-    Serial.println("STA Failed to configure");
-  }
-
+  // Configure WiFi with DHCP (automatic IP assignment)
   WiFi.begin(ssid, password);
   while (WiFi.status() != WL_CONNECTED) {
     delay(500);
