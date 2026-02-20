@@ -21,21 +21,24 @@ print("Press Ctrl+C to stop")
 print("")
 
 # Debug version - shows ffmpeg output
+# Uses ultrafast preset and zerolatency tune for minimal delay
+# Fixed 15fps output to prevent fast-forward/slow-motion issues
 cmd = [
     "ffmpeg",
-    "-f", "mjpeg",
+    "-hide_banner",
+    "-loglevel", "info",  # Show info for debugging
+    "-fflags", "+discardcorrupt",
     "-reconnect", "1",
     "-reconnect_streamed", "1",
     "-reconnect_delay_max", "5",
-    "-thread_queue_size", "512",  # Increase input buffer
+    "-thread_queue_size", "4096",
     "-i", STREAM_URL,
     "-c:v", "libx264",
-    "-preset", "superfast",
-    "-crf", "23",          # Slightly higher CRF for smoother playback
-    "-r", "15",             # Force output to 15fps
-    "-vf", "fps=15,format=yuv420p",  # Video filter: normalize fps and pixel format
-    "-vsync", "cfr",        # Constant frame rate - prevents fast/slow motion
-    "-max_muxing_queue_size", "1024",  # Increase muxing buffer
+    "-preset", "ultrafast",  # Fastest encoding to prevent packet loss
+    "-tune", "zerolatency",  # Optimize for low latency
+    "-crf", "28",            # Balance between quality and speed
+    "-r", "15",              # Force 15fps output (prevents fast-forward)
+    "-pix_fmt", "yuv420p",   # Standard pixel format
     "-movflags", "+faststart",
     "-y",
     filename
@@ -54,3 +57,11 @@ print(f"\n\nFile saved: {filename}")
 # Show video info
 print("\nVideo info:")
 os.system(f"ffprobe -v error -show_entries stream=avg_frame_rate,r_frame_rate,duration -of default=noprint_wrappers=1 {filename}")
+
+# Check file size
+if os.path.exists(filename):
+    size = os.path.getsize(filename)
+    if size == 0:
+        print("\n⚠️ WARNING: File is empty!")
+    else:
+        print(f"\n✓ File size: {size / (1024*1024):.2f} MB")

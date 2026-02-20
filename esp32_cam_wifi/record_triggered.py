@@ -92,24 +92,31 @@ def start_recording():
             [
                 "ffmpeg",
                 "-hide_banner",
-                "-loglevel", "info",    # Show info for debugging (change to warning later)
+                "-loglevel", "warning",
+                "-fflags", "+discardcorrupt",  # Discard corrupt packets
                 "-rw_timeout", "5000000",  # 5 second read timeout for network
                 "-reconnect", "1",
                 "-reconnect_streamed", "1",
                 "-reconnect_delay_max", "5",
-                "-thread_queue_size", "4096",  # Larger input buffer for network streams
+                "-thread_queue_size", "4096",
                 "-i", STREAM_URL,
-                "-c:v", "copy",         # First try copying the stream directly (no re-encoding)
-                "-movflags", "+faststart+frag_keyframe",
+                # Re-encode with proper frame timing to fix fast-forward
+                "-c:v", "libx264",
+                "-preset", "ultrafast",  # Fastest preset to reduce latency
+                "-tune", "zerolatency",  # Tune for low latency streaming
+                "-crf", "28",            # Lower quality but faster encoding
+                "-r", "15",              # Force 15fps output
+                "-pix_fmt", "yuv420p",   # Standard pixel format
+                "-movflags", "+faststart",
                 "-y",
                 filename
             ],
             stdout=subprocess.DEVNULL,
-            stderr=open(log_file, 'w')  # Log errors to file instead of hiding
+            stderr=open(log_file, 'w')
         )
         print(f"  ffmpeg PID: {ffmpeg_process.pid}")
         print(f"  ffmpeg log: {log_file}")
-        print(f"  Mode: copy (no re-encoding)")
+        print(f"  Mode: re-encode at 15fps (fixes fast-forward)")
         return True
     except FileNotFoundError:
         print("ERROR: ffmpeg not found! Please install ffmpeg.")

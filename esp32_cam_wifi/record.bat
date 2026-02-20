@@ -50,7 +50,7 @@ set "HH=%dt:~8,2%" & set "Min=%dt:~10,2%" & set "Sec=%dt:~12,2%"
 set "OUTPUT=%OUTPUT_DIR%\recording_%YYYY%%MM%%DD%_%HH%%Min%%Sec%.mp4"
 echo Starting continuous recording to: %OUTPUT%
 echo Press Ctrl+C to stop
-ffmpeg -hide_banner -loglevel error -f mjpeg -reconnect 1 -reconnect_streamed 1 -reconnect_delay_max 5 -thread_queue_size 512 -i "%STREAM_URL%" -c:v libx264 -preset superfast -crf 23 -r 15 -vf "fps=15,format=yuv420p" -vsync cfr -max_muxing_queue_size 1024 -movflags +faststart -y "%OUTPUT%"
+ffmpeg -hide_banner -loglevel error -fflags +discardcorrupt -reconnect 1 -reconnect_streamed 1 -reconnect_delay_max 5 -thread_queue_size 4096 -i "%STREAM_URL%" -c:v libx264 -preset ultrafast -tune zerolatency -crf 28 -r 15 -pix_fmt yuv420p -movflags +faststart -y "%OUTPUT%"
 goto :end
 
 :segment
