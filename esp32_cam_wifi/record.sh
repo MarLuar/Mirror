@@ -1,13 +1,12 @@
 #!/bin/bash
 # ESP32-CAM Recording Script for Linux/macOS
-# Simple bash script to record from ESP32-CAM stream
+# Two-pass approach: First record AVI (copy), then convert to MP4 with proper timing
 
-# ESP32-CAM IP Address (from Serial Monitor)
 ESP32_IP="10.42.0.82"
 STREAM_URL="http://${ESP32_IP}:81/stream"
 OUTPUT_DIR="recordings"
 
-# Create output directory if it doesn't exist
+# Create output directory
 mkdir -p "$OUTPUT_DIR"
 
 # Function to show usage
@@ -16,7 +15,8 @@ show_usage() {
     echo ""
     echo "Commands:"
     echo "  live       - View live stream (ffplay)"
-    echo "  record     - Start continuous recording"
+    echo "  record     - Start continuous recording (two-pass: AVI -> MP4)"
+    echo "  quick      - Quick record with copy mode only (AVI format)"
     echo "  segment    - Record in 5-minute segments"
     echo "  timestamp  - Record with timestamp filename"
     echo "  trigger    - Monitor and record based on trigger"
@@ -28,7 +28,7 @@ show_usage() {
     echo "Examples:"
     echo "  $0 live"
     echo "  $0 record"
-    echo "  $0 timestamp"
+    echo "  $0 quick"
 }
 
 # Check if ffmpeg is installed
@@ -47,37 +47,116 @@ timestamp() {
     date +"%Y%m%d_%H%M%S"
 }
 
+# Convert AVI to MP4 with proper frame rate
+convert_to_mp4() {
+    local avi_file="$1"
+    local mp4_file="${avi_file%.avi}.mp4"
+    
+    echo "Converting to MP4 with proper timing..."
+    ffmpeg -hide_banner -loglevel error -i "$avi_file" \
+        -c:v libx264 -preset ultrafast -crf 28 -r 15 -pix_fmt yuv420p \
+        -movflags +faststart -y "$mp4_file"
+    
+    if [ $? -eq 0 ]; then
+        rm -f "$avi_file"
+        echo "✓ Saved: $(basename "$mp4_file")"
+    else
+        echo "✗ Conversion failed, keeping AVI: $(basename "$avi_file")"
+    fi
+}
+
 case "$1" in
     live)
-        check_ffmpeg
         echo "Opening live stream..."
         ffplay "$STREAM_URL"
         ;;
     
+    quick)
+        # Quick recording - just copy MJPEG stream to AVI (no timing fix)
+        check_ffmpeg
+        AVI_FILE="${OUTPUT_DIR}/quick_$(timestamp).avi"
+        echo "Quick recording to: $(basename "$AVI_FILE")"
+        echo "Press Ctrl+C to stop"
+        
+        ffmpeg -hide_banner -loglevel error -thread_queue_size 8192 \
+            -i "$STREAM_URL" -c:v copy -f avi -y "$AVI_FILE"
+        
+        echo ""
+        if [ -f "$AVI_FILE" ] && [ -s "$AVI_FILE" ]; then
+            SIZE=$(du -h "$AVI_FILE" | cut -f1)
+            echo "✓ Recording saved: $(basename "$AVI_FILE") ($SIZE)"
+            echo "  Note: This is raw MJPEG. Video may play at wrong speed."
+            echo "  Run: $0 convert $(basename "$AVI_FILE") to fix timing"
+        fi
+        ;;
+    
     record)
         check_ffmpeg
-        OUTPUT="${OUTPUT_DIR}/recording_$(timestamp).mp4"
-        echo "Starting continuous recording to: $OUTPUT"
+        AVI_FILE="${OUTPUT_DIR}/recording_$(timestamp).avi"
+        MP4_FILE="${AVI_FILE%.avi}.mp4"
+        
+        echo "Starting two-pass recording..."
+        echo "  Pass 1: Recording raw stream to AVI"
+        echo "  Output: $(basename "$AVI_FILE")"
         echo "Press Ctrl+C to stop"
-        ffmpeg -hide_banner -loglevel error -fflags +discardcorrupt+nobuffer -flags +low_delay -use_wallclock_as_timestamps 1 -thread_queue_size 4096 -i "$STREAM_URL" -c:v libx264 -preset ultrafast -tune zerolatency -crf 28 -r 15 -pix_fmt yuv420p -movflags +faststart -y "$OUTPUT"
+        
+        # Record to AVI with copy mode
+        ffmpeg -hide_banner -loglevel error -thread_queue_size 8192 \
+            -i "$STREAM_URL" -c:v copy -f avi -y "$AVI_FILE"
+        
+        echo ""
+        if [ -f "$AVI_FILE" ] && [ -s "$AVI_FILE" ]; then
+            # Convert to MP4 with proper timing
+            convert_to_mp4 "$AVI_FILE"
+        else
+            echo "✗ Recording failed or empty"
+        fi
         ;;
     
     segment)
         check_ffmpeg
-        echo "Recording in 5-minute segments to: ${OUTPUT_DIR}/"
+        echo "Recording in 5-minute segments..."
         echo "Press Ctrl+C to stop"
-        ffmpeg -hide_banner -loglevel error -f mjpeg -reconnect 1 -reconnect_streamed 1 -reconnect_delay_max 5 -thread_queue_size 512 -i "$STREAM_URL" \
-            -c:v libx264 -preset superfast -crf 23 -r 15 -vf "fps=15,format=yuv420p" -vsync cfr -max_muxing_queue_size 1024 \
-            -f segment -segment_time 300 -reset_timestamps 1 -strftime 1 \
-            "${OUTPUT_DIR}/segment_%Y%m%d_%H%M%S.mp4"
+        
+        # Record in segments, converting each to MP4
+        ffmpeg -hide_banner -loglevel error -thread_queue_size 8192 \
+            -i "$STREAM_URL" -c:v copy -f avi -y "${OUTPUT_DIR}/temp_segment.avi" &
+        FFMPEG_PID=$!
+        
+        # Wait for interrupt
+        trap "kill $FFMPEG_PID 2>/dev/null; convert_to_mp4 '${OUTPUT_DIR}/temp_segment.avi'; exit 0" INT
+        wait $FFMPEG_PID
+        convert_to_mp4 "${OUTPUT_DIR}/temp_segment.avi"
         ;;
     
     timestamp)
         check_ffmpeg
-        OUTPUT="${OUTPUT_DIR}/recording_$(timestamp).mp4"
-        echo "Recording to: $OUTPUT"
+        AVI_FILE="${OUTPUT_DIR}/recording_$(timestamp).avi"
+        
+        echo "Recording with timestamp..."
         echo "Press Ctrl+C to stop"
-        ffmpeg -hide_banner -loglevel error -fflags +discardcorrupt+nobuffer -flags +low_delay -use_wallclock_as_timestamps 1 -thread_queue_size 4096 -i "$STREAM_URL" -c:v libx264 -preset ultrafast -tune zerolatency -crf 28 -r 15 -pix_fmt yuv420p -movflags +faststart -y "$OUTPUT"
+        
+        ffmpeg -hide_banner -loglevel error -thread_queue_size 8192 \
+            -i "$STREAM_URL" -c:v copy -f avi -y "$AVI_FILE"
+        
+        echo ""
+        if [ -f "$AVI_FILE" ] && [ -s "$AVI_FILE" ]; then
+            convert_to_mp4 "$AVI_FILE"
+        fi
+        ;;
+    
+    convert)
+        # Convert existing AVI to MP4
+        if [ -z "$2" ]; then
+            echo "Usage: $0 convert <avi_filename>"
+            exit 1
+        fi
+        AVI_FILE="${OUTPUT_DIR}/$2"
+        if [ ! -f "$AVI_FILE" ]; then
+            echo "File not found: $AVI_FILE"
+            exit 1
+        fi
+        convert_to_mp4 "$AVI_FILE"
         ;;
     
     trigger)

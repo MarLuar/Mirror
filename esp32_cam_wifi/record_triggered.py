@@ -1,16 +1,8 @@
 #!/usr/bin/env python3
 """
 ESP32-CAM Trigger-based Recording Script
-
 This script monitors the ESP32-CAM's recording status and automatically
 starts/stops ffmpeg recording based on the trigger state.
-
-Usage:
-    python3 record_triggered.py
-
-Requirements:
-    - ffmpeg installed and in PATH
-    - requests library: pip install requests
 """
 
 import requests
@@ -66,68 +58,44 @@ def start_recording():
     print(f"Stream URL: {STREAM_URL}")
     print(f"{'='*50}\n")
     
-    # First, test if stream is accessible
-    print("Testing stream accessibility...")
-    try:
-        import urllib.request
-        # Use GET with a small range to test (HEAD might not be supported)
-        req = urllib.request.Request(STREAM_URL)
-        req.add_header('Range', 'bytes=0-1024')
-        with urllib.request.urlopen(req, timeout=5) as response:
-            content_type = response.headers.get('Content-Type', 'unknown')
-            print(f"  ✓ Stream is accessible (Status: {response.status}, Content-Type: {content_type})")
-    except Exception as e:
-        print(f"  ⚠ Stream test warning: {e}")
-        print("  Continuing anyway...")
-    
     try:
         # Create a log file for ffmpeg errors
         log_file = os.path.join(OUTPUT_DIR, f"ffmpeg_{get_timestamp()}.log")
         
-        # Try simple copy mode first for testing, then fall back to re-encoding if needed
-        # The stream from ESP32-CAM is already MJPEG, we can copy it directly
-        # But for compatibility we'll use libx264 with proper settings
-        
+        # Use copy mode to get frames as they arrive, then re-encode to fix timing
         ffmpeg_process = subprocess.Popen(
             [
                 "ffmpeg",
                 "-hide_banner",
                 "-loglevel", "warning",
-                "-fflags", "+discardcorrupt+nobuffer",  # Discard corrupt, no buffer
-                "-flags", "+low_delay",
-                "-use_wallclock_as_timestamps", "1",  # Use arrival time for timestamps
-                "-thread_queue_size", "4096",
+                "-thread_queue_size", "8192",
                 "-i", STREAM_URL,
-                # Output at constant frame rate
-                "-c:v", "libx264",
-                "-preset", "ultrafast",
-                "-tune", "zerolatency",
-                "-crf", "28",
-                "-r", "15",              # Output 15fps
-                "-pix_fmt", "yuv420p",
-                "-movflags", "+faststart",
+                # Two-pass approach: first save as MJPEG AVI (no timestamp issues)
+                # Then we'll re-encode to fix timing
+                "-c:v", "copy",         # Copy frames exactly as received
+                "-f", "avi",            # AVI container handles variable frame rate better
                 "-y",
-                filename
+                filename.replace('.mp4', '.avi')  # Save as AVI first
             ],
             stdout=subprocess.DEVNULL,
             stderr=open(log_file, 'w')
         )
         print(f"  ffmpeg PID: {ffmpeg_process.pid}")
         print(f"  ffmpeg log: {log_file}")
-        print(f"  Mode: re-encode at 15fps (fixes fast-forward)")
-        return True
+        print(f"  Mode: copy to AVI (raw frames)")
+        return filename.replace('.mp4', '.avi')  # Return the actual filename
     except FileNotFoundError:
         print("ERROR: ffmpeg not found! Please install ffmpeg.")
         print("  Ubuntu/Debian: sudo apt-get install ffmpeg")
         print("  macOS: brew install ffmpeg")
         print("  Windows: https://ffmpeg.org/download.html")
-        return False
+        return None
     except Exception as e:
         print(f"ERROR starting ffmpeg: {e}")
-        return False
+        return None
 
 
-def stop_recording():
+def stop_recording(avi_filename):
     """Stop ffmpeg recording process gracefully."""
     global ffmpeg_process
     if ffmpeg_process:
@@ -139,39 +107,51 @@ def stop_recording():
         return_code = ffmpeg_process.poll()
         
         if return_code is None:
-            # Process is still running, send SIGTERM for graceful shutdown
             print("  Stopping ffmpeg gracefully...")
             ffmpeg_process.terminate()
-            
-            # Wait for ffmpeg to finish (max 10 seconds)
             try:
                 return_code = ffmpeg_process.wait(timeout=10)
-                if return_code == 0:
-                    print("  ✓ ffmpeg stopped successfully")
-                else:
-                    print(f"  ⚠ ffmpeg exited with code: {return_code}")
             except subprocess.TimeoutExpired:
-                print("  ⚠ ffmpeg didn't stop in time, force killing...")
+                print("  Force killing ffmpeg...")
                 ffmpeg_process.kill()
                 ffmpeg_process.wait()
-        else:
-            print(f"  ⚠ ffmpeg already exited with code: {return_code}")
         
         ffmpeg_process = None
         
-        # Check if video file was created and has content
-        import glob
-        latest_files = sorted(glob.glob(os.path.join(OUTPUT_DIR, "recording_*.mp4")), 
-                             key=os.path.getmtime, reverse=True)
-        if latest_files:
-            latest_file = latest_files[0]
-            size = os.path.getsize(latest_file)
+        # Now convert AVI to MP4 with proper frame rate
+        mp4_filename = avi_filename.replace('.avi', '.mp4')
+        print(f"  Converting to MP4: {os.path.basename(mp4_filename)}")
+        
+        # Re-encode the AVI to MP4 with proper timing
+        convert_cmd = [
+            "ffmpeg",
+            "-hide_banner",
+            "-loglevel", "error",
+            "-i", avi_filename,
+            "-c:v", "libx264",
+            "-preset", "ultrafast",
+            "-crf", "28",
+            "-r", "15",              # Force 15fps
+            "-pix_fmt", "yuv420p",
+            "-movflags", "+faststart",
+            "-y",
+            mp4_filename
+        ]
+        
+        try:
+            subprocess.run(convert_cmd, check=True)
+            os.remove(avi_filename)  # Remove temporary AVI file
+            
+            # Check file size
+            size = os.path.getsize(mp4_filename)
             if size == 0:
                 print(f"  ✗ WARNING: Video file is empty ({size} bytes)")
-                print("  Check ffmpeg log file for errors")
             else:
                 size_mb = size / (1024 * 1024)
-                print(f"  ✓ Video saved: {os.path.basename(latest_file)} ({size_mb:.2f} MB)")
+                print(f"  ✓ Video saved: {os.path.basename(mp4_filename)} ({size_mb:.2f} MB)")
+        except subprocess.CalledProcessError as e:
+            print(f"  ✗ Conversion failed: {e}")
+            print(f"  Raw AVI saved: {avi_filename}")
         
         print(f"{'='*50}\n")
 
@@ -252,7 +232,6 @@ def print_status_header():
 def signal_handler(sig, frame):
     """Handle Ctrl+C gracefully."""
     print("\n\nShutting down...")
-    stop_recording()
     sys.exit(0)
 
 
@@ -284,6 +263,8 @@ def main():
         
         time.sleep(1)
     
+    current_filename = None
+    
     # Main loop
     while True:
         # Check for manual commands from stdin
@@ -302,14 +283,16 @@ def main():
         if is_recording_requested is not None:
             if is_recording_requested and not recording:
                 # Start recording
-                if start_recording():
+                current_filename = start_recording()
+                if current_filename:
                     recording = True
             elif not is_recording_requested and recording:
                 # Check minimum recording duration before stopping
                 elapsed = time.time() - recording_start_time if recording_start_time else 0
                 if elapsed >= MIN_RECORDING_DURATION:
-                    stop_recording()
+                    stop_recording(current_filename)
                     recording = False
+                    current_filename = None
                 else:
                     # Too soon to stop, ignore the stop request
                     if int(elapsed) % 1 == 0:  # Print every second
