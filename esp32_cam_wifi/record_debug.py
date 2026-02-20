@@ -21,20 +21,16 @@ print(f"Stream: {STREAM_URL}")
 print("Press Ctrl+C to stop")
 print("")
 
-# Debug version - uses fps filter + setpts to fix fast-forward issue
+# Use wallclock timestamps to fix timing issues
 cmd = [
     "ffmpeg",
     "-hide_banner",
     "-loglevel", "info",
-    "-fflags", "+discardcorrupt+igndts",
+    "-fflags", "+discardcorrupt+nobuffer",
     "-flags", "+low_delay",
-    "-reconnect", "1",
-    "-reconnect_streamed", "1",
-    "-reconnect_delay_max", "5",
+    "-use_wallclock_as_timestamps", "1",  # KEY: Use arrival time
     "-thread_queue_size", "4096",
     "-i", STREAM_URL,
-    # Key fix: fps filter normalizes frame rate, setpts fixes timestamps
-    "-vf", "fps=fps=15:round=near,setpts=N/FRAME_RATE/TB",
     "-c:v", "libx264",
     "-preset", "ultrafast",
     "-tune", "zerolatency",
@@ -59,11 +55,8 @@ print(f"\n\nFile saved: {filename}")
 # Show video info
 if os.path.exists(filename) and os.path.getsize(filename) > 0:
     print("\nVideo info:")
-    os.system(f"ffprobe -v error -show_entries stream=r_frame_rate,avg_frame_rate,duration -of default=noprint_wrappers=1 {filename}")
-    
-    # Check duration vs file creation time
-    import time
-    duration_sec = os.path.getsize(filename) / (100 * 1024)  # Rough estimate: ~100KB per second
-    print(f"\nEstimated duration: ~{duration_sec:.1f} seconds")
+    os.system(f"ffprobe -v error -show_entries stream=r_frame_rate,avg_frame_rate,duration,nb_frames -of default=noprint_wrappers=1 {filename}")
+    size_mb = os.path.getsize(filename) / (1024 * 1024)
+    print(f"\nFile size: {size_mb:.2f} MB")
 else:
     print("\n⚠️ File is empty or doesn't exist")
