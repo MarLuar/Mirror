@@ -484,8 +484,10 @@ void handlePlaybackAudio() {
   }
   
   // Check for playback timeout (1 second = end of stream)
-  if (isPlaybackMode && playbackPacketCount > 0 && (millis() - lastPlaybackPacketTime > 1000)) {
+  // Check for playback timeout (3 seconds = end of stream)
+  if (isPlaybackMode && playbackPacketCount > 0 && (millis() - lastPlaybackPacketTime > 3000)) {
     Serial.println("Playback complete (timeout)");
+    Serial.printf("Total packets: %lu\n", playbackPacketCount);
     switchToMicMode();
   }
 }

@@ -519,7 +519,7 @@ class IntegratedSpeechAnalysisApp:
                 # Send improvement suggestions to ESP32 after showing scores
                 self.send_improvement_to_esp32(improvement_tips)
                 # Send playback of the recording to ESP32 speaker
-                self.send_playback_to_esp32(recording_path, delay_before_playback=2.0)
+                self.send_playback_to_esp32(recording_path, delay_before_playback=6.0)
 
             # Display results
             self.display_results(transcription, analysis_results, source="ESP32 Wireless Mic with Prompt")
