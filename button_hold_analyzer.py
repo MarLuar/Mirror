@@ -11,6 +11,10 @@ import os
 import sys
 import time
 from datetime import datetime
+from dotenv import load_dotenv
+
+# Load environment variables
+load_dotenv()
 
 # Add parent directory to path
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
@@ -38,7 +42,10 @@ class ButtonHoldAnalyzer:
         self.prompt_sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         
         # Initialize clients
-        self.dg_client = DeepgramClientWrapper()
+        api_key = os.getenv('DEEPGRAM_API_KEY')
+        if not api_key:
+            raise ValueError("DEEPGRAM_API_KEY environment variable not set!")
+        self.dg_client = DeepgramClientWrapper(api_key)
         self.speech_analyzer = SpeechAnalyzer()
         self.recording_manager = RecordingManager()
         
