@@ -206,8 +206,7 @@ void resetDisplay() {
   display.setTextSize(1);
   display.setTextColor(SSD1306_WHITE);
   display.setCursor(0, 0);
-  isScrolling = false;
-  scrollPosition = 0;
+  display.display();
 }
 
 void switchToMicMode() {
