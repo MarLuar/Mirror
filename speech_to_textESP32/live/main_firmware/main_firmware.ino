@@ -199,8 +199,21 @@ void switchToPlaybackMode() {
   display.display();
 }
 
+void resetDisplay() {
+  // Force reset the OLED display
+  display.stopscroll();
+  display.clearDisplay();
+  display.setTextSize(1);
+  display.setTextColor(SSD1306_WHITE);
+  display.setCursor(0, 0);
+  isScrolling = false;
+  scrollPosition = 0;
+}
+
 void switchToMicMode() {
   if (!isPlaybackMode) return;
+  
+  Serial.println("Switching to MIC mode...");
   
   isPlaybackMode = false;
   pendingPlaybackSwitch = false;
@@ -212,14 +225,24 @@ void switchToMicMode() {
     i2s_write(I2S_NUM_0, silence, sizeof(silence), &written, 10);
   }
   
+  // Small delay to let I2S settle
+  delay(100);
+  
   initI2S_Mic();
   Serial.println("=== MIC MODE ===");
   
   // Reset prompt to Ready and update display
+  memset(currentPrompt, 0, sizeof(currentPrompt));
   strcpy(currentPrompt, "Ready...");
-  Serial.println("Display set to: Ready...");
-  updatePromptDisplay();
-  Serial.println("Display updated");
+  
+  // Reset display state completely
+  resetDisplay();
+  
+  // Display Ready
+  display.println("Ready...");
+  display.display();
+  
+  Serial.println("Display reset to: Ready...");
 }
 
 int convertStereoToMono(uint8_t* stereoData, int stereoLen, int16_t* monoData, int monoMaxSamples) {
@@ -555,13 +578,24 @@ void loop() {
     handleScrolling();
   }
 
+  // Periodic heartbeat to check if loop is still running
+  static unsigned long lastHeartbeat = 0;
+  if (millis() - lastHeartbeat > 10000) {
+    Serial.printf("[Heartbeat] Mode: %s, Prompt: %.20s...\n", 
+      isPlaybackMode ? "PLAYBACK" : "MIC", currentPrompt);
+    lastHeartbeat = millis();
+  }
+  
   // Check for incoming prompts (always check, regardless of mode)
   int promptSize = promptUdp.parsePacket();
   if (promptSize) {
+    Serial.printf("Received prompt packet: %d bytes\n", promptSize);
+    
+    // Clear buffer and read new prompt
     memset(currentPrompt, 0, sizeof(currentPrompt));
     int bytesRead = promptUdp.read(currentPrompt, sizeof(currentPrompt) - 1);
     
-    Serial.printf("Received prompt (%d bytes): %s\n", bytesRead, currentPrompt);
+    Serial.printf("Prompt content (%d bytes): %.50s...\n", bytesRead, currentPrompt);
 
     if (strcmp(currentPrompt, "PROCESSING_AUDIO") == 0) {
       Serial.println("Processing audio...");
