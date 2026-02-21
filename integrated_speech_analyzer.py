@@ -114,7 +114,9 @@ class IntegratedSpeechAnalysisApp:
             # Get ESP32 configuration from config file
             self.esp32_ip = self.config.get("esp32", {}).get("ip_address", "10.42.0.156")
             self.prompt_port = self.config.get("esp32", {}).get("prompt_port", 1235)
+            self.playback_port = self.config.get("esp32", {}).get("playback_port", 1236)
             print(f"Initialized prompt sending to ESP32 at {self.esp32_ip}:{self.prompt_port}")
+            print(f"Initialized playback sending to ESP32 at {self.esp32_ip}:{self.playback_port}")
         except Exception as e:
             print(f"Could not initialize ESP32 prompt sending: {e}")
             self.prompt_socket = None
@@ -236,16 +238,7 @@ class IntegratedSpeechAnalysisApp:
             # Send results to ESP32
             self.send_results_to_esp32(transcription, analysis_results, avg_score)
 
-            # Wait briefly for ESP32 to display results, then send improvement suggestions
-            time.sleep(5)  # Wait for ESP32 to show scores
-
-            # Generate and send improvement suggestions to ESP32
-            improvement_tips = self.generate_improvement_suggestions(analysis_results)
-            if improvement_tips:
-                # Send improvement suggestions to ESP32 after showing scores
-                self.send_improvement_to_esp32(improvement_tips)
-
-            # Save the recording with analysis results
+            # Save the recording with analysis results FIRST (for playback)
             timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
             recording_filename = f"esp32_wireless_mic_{timestamp}"
             audio_params = {
@@ -261,6 +254,18 @@ class IntegratedSpeechAnalysisApp:
                 transcription
             )
             print(f"[ESP32] Recording saved as: {os.path.basename(recording_path)}")
+
+            # Wait briefly for ESP32 to display results, then send improvement suggestions
+            time.sleep(5)  # Wait for ESP32 to show scores
+
+            # Generate and send improvement suggestions to ESP32
+            improvement_tips = self.generate_improvement_suggestions(analysis_results)
+            if improvement_tips:
+                # Send improvement suggestions to ESP32 after showing scores
+                self.send_improvement_to_esp32(improvement_tips)
+                # Send playback of the recording to ESP32 speaker
+                # ESP32 will switch to playback mode 5 seconds after receiving IMPROVE:
+                self.send_playback_to_esp32(recording_path, delay_before_playback=6.0)
 
             # Display results
             self.display_results(transcription, analysis_results, source="ESP32 Wireless Mic")
@@ -298,16 +303,7 @@ class IntegratedSpeechAnalysisApp:
                     # Send results to ESP32
                     self.send_results_to_esp32(transcription, analysis_results, avg_score)
 
-                    # Wait briefly for ESP32 to display results, then send improvement suggestions
-                    time.sleep(5)  # Wait for ESP32 to show scores
-
-                    # Generate and send improvement suggestions to ESP32
-                    improvement_tips = self.generate_improvement_suggestions(analysis_results)
-                    if improvement_tips:
-                        # Send improvement suggestions to ESP32 after showing scores
-                        self.send_improvement_to_esp32(improvement_tips)
-
-                    # Save the recording with analysis results
+                    # Save the recording with analysis results FIRST
                     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
                     recording_filename = f"esp32_wireless_mic_reduced_{timestamp}"
                     audio_params = {
@@ -323,6 +319,17 @@ class IntegratedSpeechAnalysisApp:
                         transcription
                     )
                     print(f"[ESP32] Recording saved as: {os.path.basename(recording_path)}")
+
+                    # Wait briefly for ESP32 to display results, then send improvement suggestions
+                    time.sleep(5)  # Wait for ESP32 to show scores
+
+                    # Generate and send improvement suggestions to ESP32
+                    improvement_tips = self.generate_improvement_suggestions(analysis_results)
+                    if improvement_tips:
+                        # Send improvement suggestions to ESP32 after showing scores
+                        self.send_improvement_to_esp32(improvement_tips)
+                        # Send playback of the recording to ESP32 speaker
+                        self.send_playback_to_esp32(recording_path, delay_before_playback=6.0)
 
                     # Display results
                     self.display_results(transcription, analysis_results, source="ESP32 Wireless Mic (Reduced)")
@@ -486,16 +493,7 @@ class IntegratedSpeechAnalysisApp:
             # Send results to ESP32
             self.send_results_to_esp32(transcription, analysis_results, avg_score)
 
-            # Wait briefly for ESP32 to display results, then send improvement suggestions
-            time.sleep(5)  # Wait for ESP32 to show scores
-
-            # Generate and send improvement suggestions to ESP32
-            improvement_tips = self.generate_improvement_suggestions(analysis_results)
-            if improvement_tips:
-                # Send improvement suggestions to ESP32 after showing scores
-                self.send_improvement_to_esp32(improvement_tips)
-
-            # Save the recording with analysis results
+            # Save the recording with analysis results FIRST
             timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
             recording_filename = f"esp32_prompted_speech_{timestamp}"
             audio_params = {
@@ -511,6 +509,17 @@ class IntegratedSpeechAnalysisApp:
                 transcription
             )
             print(f"[ESP32] Recording saved as: {os.path.basename(recording_path)}")
+
+            # Wait briefly for ESP32 to display results, then send improvement suggestions
+            time.sleep(5)  # Wait for ESP32 to show scores
+
+            # Generate and send improvement suggestions to ESP32
+            improvement_tips = self.generate_improvement_suggestions(analysis_results)
+            if improvement_tips:
+                # Send improvement suggestions to ESP32 after showing scores
+                self.send_improvement_to_esp32(improvement_tips)
+                # Send playback of the recording to ESP32 speaker
+                self.send_playback_to_esp32(recording_path, delay_before_playback=2.0)
 
             # Display results
             self.display_results(transcription, analysis_results, source="ESP32 Wireless Mic with Prompt")
@@ -548,16 +557,7 @@ class IntegratedSpeechAnalysisApp:
                     # Send results to ESP32
                     self.send_results_to_esp32(transcription, analysis_results, avg_score)
 
-                    # Wait briefly for ESP32 to display results, then send improvement suggestions
-                    time.sleep(5)  # Wait for ESP32 to show scores
-
-                    # Generate and send improvement suggestions to ESP32
-                    improvement_tips = self.generate_improvement_suggestions(analysis_results)
-                    if improvement_tips:
-                        # Send improvement suggestions to ESP32 after showing scores
-                        self.send_improvement_to_esp32(improvement_tips)
-
-                    # Save the recording with analysis results
+                    # Save the recording with analysis results FIRST
                     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
                     recording_filename = f"esp32_prompted_speech_reduced_{timestamp}"
                     audio_params = {
@@ -573,6 +573,17 @@ class IntegratedSpeechAnalysisApp:
                         transcription
                     )
                     print(f"[ESP32] Recording saved as: {os.path.basename(recording_path)}")
+
+                    # Wait briefly for ESP32 to display results, then send improvement suggestions
+                    time.sleep(5)  # Wait for ESP32 to show scores
+
+                    # Generate and send improvement suggestions to ESP32
+                    improvement_tips = self.generate_improvement_suggestions(analysis_results)
+                    if improvement_tips:
+                        # Send improvement suggestions to ESP32 after showing scores
+                        self.send_improvement_to_esp32(improvement_tips)
+                        # Send playback of the recording to ESP32 speaker
+                        self.send_playback_to_esp32(recording_path, delay_before_playback=6.0)
 
                     # Display results
                     self.display_results(transcription, analysis_results, source="ESP32 Wireless Mic with Prompt (Reduced)")
@@ -888,6 +899,84 @@ class IntegratedSpeechAnalysisApp:
                 print(f"Sent improvement tips to ESP32: {improvement_tips[:50]}{'...' if len(improvement_tips) > 50 else ''}")
             except Exception as e:
                 print(f"Failed to send improvement tips to ESP32: {e}")
+
+    def send_playback_to_esp32(self, recording_path, delay_before_playback=2.0):
+        """
+        Send recorded audio back to ESP32 for playback through speaker
+        :param recording_path: Path to the WAV file to play back
+        :param delay_before_playback: Delay in seconds to allow ESP32 to switch modes
+        """
+        import wave
+        
+        if not os.path.exists(recording_path):
+            print(f"Playback file not found: {recording_path}")
+            return
+        
+        try:
+            with wave.open(recording_path, 'rb') as wav:
+                channels = wav.getnchannels()
+                sample_width = wav.getsampwidth()
+                frame_rate = wav.getframerate()
+                n_frames = wav.getnframes()
+                duration = n_frames / frame_rate
+                
+                print(f"\nLoading playback audio: {recording_path}")
+                print(f"  Duration: {duration:.2f}s, Channels: {channels}, Rate: {frame_rate}Hz")
+                
+                # Read audio data
+                audio_data = wav.readframes(n_frames)
+                print(f"  Loaded {len(audio_data)} bytes")
+        except Exception as e:
+            print(f"Error reading playback file: {e}")
+            return
+        
+        # Create UDP socket for playback
+        try:
+            playback_socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+            playback_socket.settimeout(5.0)
+            
+            print(f"\nWaiting {delay_before_playback}s for ESP32 to switch to playback mode...")
+            time.sleep(delay_before_playback)
+            
+            # Send START command
+            print("Sending START command to ESP32...")
+            playback_socket.sendto(b"START", (self.esp32_ip, self.playback_port))
+            time.sleep(0.2)
+            
+            # Send audio data in chunks
+            chunk_size = 1024
+            total_sent = 0
+            packet_count = 0
+            
+            print(f"Sending {len(audio_data)} bytes in {chunk_size}-byte chunks...")
+            start_time = time.time()
+            
+            for i in range(0, len(audio_data), chunk_size):
+                chunk = audio_data[i:i+chunk_size]
+                playback_socket.sendto(chunk, (self.esp32_ip, self.playback_port))
+                total_sent += len(chunk)
+                packet_count += 1
+                
+                if packet_count % 100 == 0:
+                    progress = (total_sent / len(audio_data)) * 100
+                    print(f"  Progress: {progress:.1f}% ({packet_count} packets)")
+                
+                # Small delay to match playback rate
+                time.sleep(0.004)
+            
+            transfer_time = time.time() - start_time
+            print(f"✅ Playback sent! {packet_count} packets in {transfer_time:.2f}s")
+            
+            # Send END signal
+            for _ in range(5):
+                playback_socket.sendto(b"END", (self.esp32_ip, self.playback_port))
+                time.sleep(0.05)
+            
+            playback_socket.close()
+            print("Playback complete - ESP32 should now be playing your speech\n")
+            
+        except Exception as e:
+            print(f"Error sending playback to ESP32: {e}")
 
     async def playback_recording(self):
         """
