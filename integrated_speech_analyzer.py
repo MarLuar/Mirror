@@ -973,7 +973,11 @@ class IntegratedSpeechAnalysisApp:
                 time.sleep(0.05)
             
             playback_socket.close()
-            print("Playback complete - ESP32 should now be playing your speech\n")
+            print("Playback complete - ESP32 should now be playing your speech")
+            print("\n⚠️  ESP32 will restart after playback...")
+            print("Waiting 10 seconds for ESP32 to reconnect...")
+            time.sleep(10)
+            print("ESP32 should be ready now.\n")
             
         except Exception as e:
             print(f"Error sending playback to ESP32: {e}")
