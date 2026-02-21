@@ -217,42 +217,48 @@ void resetDisplay() {
 }
 
 void switchToMicMode() {
-  if (!isPlaybackMode) return;
+  if (!isPlaybackMode) {
+    Serial.println("Already in MIC mode, skipping switch");
+    return;
+  }
   
-  Serial.println("Switching to MIC mode...");
+  Serial.println("\n=== SWITCHING TO MIC MODE ===");
   
+  // First, reset display state
   isPlaybackMode = false;
   pendingPlaybackSwitch = false;
+  isScrolling = false;
+  scrollPosition = 0;
+  
+  // Clear prompt buffer and set to Ready
+  memset(currentPrompt, 0, sizeof(currentPrompt));
+  strcpy(currentPrompt, "Ready...");
+  
+  // Update display BEFORE I2S switch (in case I2S hangs)
+  Serial.println("Updating display...");
+  display.stopscroll();
+  display.clearDisplay();
+  display.setTextSize(1);
+  display.setTextColor(SSD1306_WHITE);
+  display.setCursor(0, 0);
+  display.println("Ready...");
+  display.display();
+  Serial.println("Display updated to: Ready...");
   
   // Clear I2S buffer
+  Serial.println("Clearing I2S buffer...");
   int16_t silence[64] = {0};
   for (int i = 0; i < 16; i++) {
     size_t written;
     i2s_write(I2S_NUM_0, silence, sizeof(silence), &written, 10);
   }
+  delay(50);
   
-  // Small delay to let I2S settle
-  delay(100);
-  
+  // Reinitialize I2S for microphone
+  Serial.println("Reinitializing I2S for MIC...");
   initI2S_Mic();
-  Serial.println("=== MIC MODE ===");
   
-  // Reset all display state variables
-  isScrolling = false;
-  scrollPosition = 0;
-  
-  // Reset prompt to Ready and update display
-  memset(currentPrompt, 0, sizeof(currentPrompt));
-  strcpy(currentPrompt, "Ready...");
-  
-  // Reset display state completely
-  resetDisplay();
-  
-  // Display Ready
-  display.println("Ready...");
-  display.display();
-  
-  Serial.println("Display reset to: Ready...");
+  Serial.println("=== MIC MODE READY ===\n");
 }
 
 int convertStereoToMono(uint8_t* stereoData, int stereoLen, int16_t* monoData, int monoMaxSamples) {
