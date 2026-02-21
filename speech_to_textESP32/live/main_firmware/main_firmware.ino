@@ -63,6 +63,13 @@ unsigned long playbackPacketCount = 0;
 bool pendingPlaybackSwitch = false;
 unsigned long playbackSwitchTime = 0;
 
+// Display state
+bool isScrolling = false;
+int scrollPosition = 0;
+int maxScroll = 0;
+unsigned long lastScrollTime = 0;
+const int SCROLL_INTERVAL = 500;
+
 // ===================
 // ESP-NOW Configuration
 // ===================
@@ -230,6 +237,10 @@ void switchToMicMode() {
   initI2S_Mic();
   Serial.println("=== MIC MODE ===");
   
+  // Reset all display state variables
+  isScrolling = false;
+  scrollPosition = 0;
+  
   // Reset prompt to Ready and update display
   memset(currentPrompt, 0, sizeof(currentPrompt));
   strcpy(currentPrompt, "Ready...");
@@ -270,12 +281,6 @@ void initOLED() {
   display.display();
   delay(2000);
 }
-
-bool isScrolling = false;
-int scrollPosition = 0;
-int maxScroll = 0;
-unsigned long lastScrollTime = 0;
-const int SCROLL_INTERVAL = 500;
 
 int16_t calculateTextHeight(const char* text) {
   int16_t cursor_x = 0, cursor_y = 0;
