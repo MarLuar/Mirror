@@ -16,7 +16,7 @@ from datetime import datetime
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from api.deepgram_client import DeepgramClientWrapper
-from utils.speech_analyzer import SpeechAnalyzer
+from analysis.speech_analyzer import SpeechAnalyzer
 from utils.recording_manager import RecordingManager
 
 ESP32_IP = "10.42.0.156"
