@@ -130,7 +130,9 @@ void sendCameraTrigger(bool startRecording) {
 // ===================
 
 void initI2S_Mic() {
+  // Try to uninstall if already installed (ignore error if not)
   i2s_driver_uninstall(I2S_NUM_0);
+  delay(10);
   
   i2s_config_t i2s_config = {
     .mode = (i2s_mode_t)(I2S_MODE_MASTER | I2S_MODE_RX),
@@ -144,7 +146,11 @@ void initI2S_Mic() {
     .use_apll = false
   };
 
-  i2s_driver_install(I2S_NUM_0, &i2s_config, 0, NULL);
+  esp_err_t err = i2s_driver_install(I2S_NUM_0, &i2s_config, 0, NULL);
+  if (err != ESP_OK) {
+    Serial.printf("I2S MIC install failed: %d\n", err);
+    return;
+  }
 
   i2s_pin_config_t pin_config = {
     .bck_io_num = I2S_SCK,
@@ -154,11 +160,13 @@ void initI2S_Mic() {
   };
 
   i2s_set_pin(I2S_NUM_0, &pin_config);
-  Serial.println("I2S: MIC mode");
+  Serial.println("I2S: MIC mode OK");
 }
 
 void initI2S_Speaker() {
+  // Try to uninstall if already installed (ignore error if not)
   i2s_driver_uninstall(I2S_NUM_0);
+  delay(10);
   
   i2s_config_t i2s_config = {
     .mode = (i2s_mode_t)(I2S_MODE_MASTER | I2S_MODE_TX),
@@ -174,7 +182,11 @@ void initI2S_Speaker() {
     .fixed_mclk = 0
   };
 
-  i2s_driver_install(I2S_NUM_0, &i2s_config, 0, NULL);
+  esp_err_t err = i2s_driver_install(I2S_NUM_0, &i2s_config, 0, NULL);
+  if (err != ESP_OK) {
+    Serial.printf("I2S SPEAKER install failed: %d\n", err);
+    return;
+  }
 
   i2s_pin_config_t pin_config = {
     .bck_io_num = AMP_BCLK,
@@ -184,7 +196,7 @@ void initI2S_Speaker() {
   };
 
   i2s_set_pin(I2S_NUM_0, &pin_config);
-  Serial.println("I2S: SPEAKER mode");
+  Serial.println("I2S: SPEAKER mode OK");
 }
 
 void switchToPlaybackMode() {
@@ -506,7 +518,23 @@ void handlePlaybackAudio() {
 
 void handleMicAudio() {
   size_t bytes_read;
-  i2s_read(I2S_NUM_0, &micAudioBuffer, sizeof(micAudioBuffer), &bytes_read, portMAX_DELAY);
+  esp_err_t err = i2s_read(I2S_NUM_0, &micAudioBuffer, sizeof(micAudioBuffer), &bytes_read, portMAX_DELAY);
+  
+  if (err != ESP_OK) {
+    static int read_errors = 0;
+    if (++read_errors % 100 == 0) {
+      Serial.printf("I2S read error: %d\n", err);
+    }
+    return;
+  }
+  
+  if (bytes_read == 0) {
+    static int zero_reads = 0;
+    if (++zero_reads % 100 == 0) {
+      Serial.println("I2S read 0 bytes");
+    }
+    return;
+  }
 
   int samples = bytes_read / 4;
 
