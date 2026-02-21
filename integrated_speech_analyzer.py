@@ -841,12 +841,15 @@ class IntegratedSpeechAnalysisApp:
             )
             time.sleep(5)  # Show results for 5 seconds
 
-            # Generate and send improvement suggestions to ESP32
-            improvement_tips = self.generate_improvement_suggestions(analysis_results)
-            if improvement_tips:
-                # Send improvement suggestions to ESP32 after showing scores
-                self.send_improvement_to_esp32(improvement_tips)
-                time.sleep(7)  # Show improvement tips for 7 seconds
+            # NOTE: IMPROVE message is already sent in the main ESP32 flow
+            # before calling display_results, so we skip it here to avoid double-sending
+            if "ESP32" not in source:
+                # Generate and send improvement suggestions to ESP32
+                improvement_tips = self.generate_improvement_suggestions(analysis_results)
+                if improvement_tips:
+                    # Send improvement suggestions to ESP32 after showing scores
+                    self.send_improvement_to_esp32(improvement_tips)
+                    time.sleep(7)  # Show improvement tips for 7 seconds
 
     def generate_improvement_suggestions(self, analysis_results):
         """
