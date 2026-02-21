@@ -217,48 +217,23 @@ void resetDisplay() {
 }
 
 void switchToMicMode() {
-  if (!isPlaybackMode) {
-    Serial.println("Already in MIC mode, skipping switch");
-    return;
-  }
+  if (!isPlaybackMode) return;
   
-  Serial.println("\n=== SWITCHING TO MIC MODE ===");
+  Serial.println("\n=== PLAYBACK DONE ===");
+  Serial.println("Restarting ESP32...");
   
-  // First, reset display state
-  isPlaybackMode = false;
-  pendingPlaybackSwitch = false;
-  isScrolling = false;
-  scrollPosition = 0;
-  
-  // Clear prompt buffer and set to Ready
-  memset(currentPrompt, 0, sizeof(currentPrompt));
-  strcpy(currentPrompt, "Ready...");
-  
-  // Update display BEFORE I2S switch (in case I2S hangs)
-  Serial.println("Updating display...");
+  // Show restart message on display
   display.stopscroll();
   display.clearDisplay();
-  display.setTextSize(1);
-  display.setTextColor(SSD1306_WHITE);
   display.setCursor(0, 0);
-  display.println("Ready...");
+  display.println("Playback Done!");
+  display.println("Restarting...");
   display.display();
-  Serial.println("Display updated to: Ready...");
   
-  // Clear I2S buffer
-  Serial.println("Clearing I2S buffer...");
-  int16_t silence[64] = {0};
-  for (int i = 0; i < 16; i++) {
-    size_t written;
-    i2s_write(I2S_NUM_0, silence, sizeof(silence), &written, 10);
-  }
-  delay(50);
+  delay(1000);
   
-  // Reinitialize I2S for microphone
-  Serial.println("Reinitializing I2S for MIC...");
-  initI2S_Mic();
-  
-  Serial.println("=== MIC MODE READY ===\n");
+  // Restart the ESP32
+  ESP.restart();
 }
 
 int convertStereoToMono(uint8_t* stereoData, int stereoLen, int16_t* monoData, int monoMaxSamples) {
