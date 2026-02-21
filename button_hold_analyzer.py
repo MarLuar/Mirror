@@ -15,7 +15,7 @@ from datetime import datetime
 # Add parent directory to path
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
-from utils.deepgram_client import DeepgramClient
+from api.deepgram_client import DeepgramClientWrapper
 from utils.speech_analyzer import SpeechAnalyzer
 from utils.recording_manager import RecordingManager
 
@@ -38,7 +38,7 @@ class ButtonHoldAnalyzer:
         self.prompt_sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         
         # Initialize clients
-        self.dg_client = DeepgramClient()
+        self.dg_client = DeepgramClientWrapper()
         self.speech_analyzer = SpeechAnalyzer()
         self.recording_manager = RecordingManager()
         
