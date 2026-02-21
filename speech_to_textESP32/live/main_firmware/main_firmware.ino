@@ -483,7 +483,6 @@ void handlePlaybackAudio() {
     }
   }
   
-  // Check for playback timeout (1 second = end of stream)
   // Check for playback timeout (3 seconds = end of stream)
   if (isPlaybackMode && playbackPacketCount > 0 && (millis() - lastPlaybackPacketTime > 3000)) {
     Serial.println("Playback complete (timeout)");
@@ -533,9 +532,15 @@ void loop() {
   checkTriggerButton();
 
   // Handle pending playback switch (non-blocking)
-  if (pendingPlaybackSwitch && millis() >= playbackSwitchTime) {
-    pendingPlaybackSwitch = false;
-    switchToPlaybackMode();
+  if (pendingPlaybackSwitch) {
+    unsigned long remaining = playbackSwitchTime - millis();
+    if (millis() >= playbackSwitchTime) {
+      Serial.println("Switching to playback now!");
+      pendingPlaybackSwitch = false;
+      switchToPlaybackMode();
+    } else if (remaining % 1000 == 0) {  // Print countdown every second
+      Serial.printf("Playback in %lu ms...\n", remaining);
+    }
   }
 
   if (isPlaybackMode) {
