@@ -975,8 +975,28 @@ class IntegratedSpeechAnalysisApp:
             playback_socket.close()
             print("Playback complete - ESP32 should now be playing your speech")
             print("\n⚠️  ESP32 will restart after playback...")
-            print("Waiting 10 seconds for ESP32 to reconnect...")
-            time.sleep(10)
+            print("Waiting 12 seconds for ESP32 to restart and stabilize...")
+            time.sleep(12)
+            
+            # Clear any pending/old UDP packets from previous session
+            print("Clearing old UDP packets...")
+            try:
+                clear_socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+                clear_socket.bind(("0.0.0.0", self.prompt_port))
+                clear_socket.settimeout(0.1)
+                cleared = 0
+                while True:
+                    try:
+                        clear_socket.recv(1024)
+                        cleared += 1
+                    except socket.timeout:
+                        break
+                clear_socket.close()
+                if cleared > 0:
+                    print(f"Cleared {cleared} old packets")
+            except:
+                pass
+            
             print("ESP32 should be ready now.\n")
             
         except Exception as e:

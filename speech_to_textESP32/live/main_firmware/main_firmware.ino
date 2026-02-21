@@ -380,8 +380,11 @@ void handleScrolling() {
   }
 }
 
+unsigned long bootTime = 0;
+
 void setup() {
   Serial.begin(115200);
+  bootTime = millis();
   
   initOLED();
   
@@ -419,6 +422,15 @@ void setup() {
   
   Serial.println("\n=== Setup Complete ===");
   Serial.println("Commands: RECORD, STOP, PLAYBACK, MIC");
+  
+  // Clear any pending/old UDP packets from buffer
+  Serial.println("Clearing old UDP packets...");
+  int cleared = 0;
+  while (promptUdp.parsePacket()) {
+    promptUdp.read(playbackBuffer, PLAYBACK_BUFFER_SIZE);
+    cleared++;
+  }
+  Serial.printf("Cleared %d old packets\n", cleared);
 }
 
 void handleSerialCommands() {
@@ -673,6 +685,12 @@ void loop() {
       display.display();
     }
     else if (strncmp(currentPrompt, "IMPROVE:", 8) == 0) {
+      // Ignore IMPROVE messages for first 5 seconds after boot (old queued packets)
+      if (millis() - bootTime < 5000) {
+        Serial.println("IMPROVE ignored (booting)");
+        return;
+      }
+      
       Serial.println("IMPROVE received");
       display.stopscroll();
       display.clearDisplay();
