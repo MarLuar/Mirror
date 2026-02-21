@@ -422,6 +422,7 @@ void setup() {
   
   Serial.println("\n=== Setup Complete ===");
   Serial.println("Commands: RECORD, STOP, PLAYBACK, MIC");
+  Serial.printf("Boot time: %lu ms\n", bootTime);
   
   // Clear any pending/old UDP packets from buffer
   Serial.println("Clearing old UDP packets...");
@@ -695,7 +696,9 @@ void loop() {
     }
     else if (strncmp(currentPrompt, "IMPROVE:", 8) == 0) {
       // Ignore IMPROVE messages for first 5 seconds after boot (old queued packets)
-      if (millis() - bootTime < 5000) {
+      unsigned long timeSinceBoot = millis() - bootTime;
+      Serial.printf("IMPROVE check: timeSinceBoot=%lu ms (bootTime=%lu)\n", timeSinceBoot, bootTime);
+      if (timeSinceBoot < 5000) {
         Serial.println("IMPROVE ignored (booting)");
         return;
       }
