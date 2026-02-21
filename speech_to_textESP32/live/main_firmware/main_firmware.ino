@@ -214,6 +214,9 @@ void switchToMicMode() {
   
   initI2S_Mic();
   Serial.println("=== MIC MODE ===");
+  
+  // Reset prompt to Ready and update display
+  strcpy(currentPrompt, "Ready...");
   updatePromptDisplay();
 }
 
