@@ -217,7 +217,9 @@ void switchToMicMode() {
   
   // Reset prompt to Ready and update display
   strcpy(currentPrompt, "Ready...");
+  Serial.println("Display set to: Ready...");
   updatePromptDisplay();
+  Serial.println("Display updated");
 }
 
 int convertStereoToMono(uint8_t* stereoData, int stereoLen, int16_t* monoData, int monoMaxSamples) {
