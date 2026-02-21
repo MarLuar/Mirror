@@ -558,24 +558,33 @@ void handleMicAudio() {
   int beginResult = audioUdp.beginPacket(udpAddress, audioPort);
   if (beginResult) {
     audioUdp.write((uint8_t*)micAudioBuffer, bytes_read);
-    audioUdp.endPacket();
-
+    int endResult = audioUdp.endPacket();
+    
     static int counter = 0;
-    static unsigned long lastUpdate = 0;
-
-    if (++counter % 100 == 0) {
-      if (millis() - lastUpdate > 5000) {
-        if (strcmp(currentPrompt, "Ready...") == 0 && !isScrolling) {
-          display.stopscroll();
-          display.clearDisplay();
-          display.setCursor(0, 0);
-          display.println("Streaming...");
-          display.print("Pkts: ");
-          display.println(counter);
-          display.display();
-        }
-        lastUpdate = millis();
+    static unsigned long lastDebug = 0;
+    
+    counter++;
+    
+    // Debug: print every 100 packets or every 5 seconds
+    if (counter % 100 == 0 || millis() - lastDebug > 5000) {
+      Serial.printf("MIC: Sent packet %d (endPacket: %d)\n", counter, endResult);
+      lastDebug = millis();
+      
+      // Update display if showing Ready
+      if (strcmp(currentPrompt, "Ready...") == 0 && !isScrolling) {
+        display.stopscroll();
+        display.clearDisplay();
+        display.setCursor(0, 0);
+        display.println("Streaming...");
+        display.print("Pkts: ");
+        display.println(counter);
+        display.display();
       }
+    }
+  } else {
+    static int failCount = 0;
+    if (++failCount % 100 == 0) {
+      Serial.printf("MIC: beginPacket failed %d times\n", failCount);
     }
   }
 }
