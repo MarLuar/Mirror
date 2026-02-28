@@ -23,6 +23,11 @@
 #include "soc/soc.h"
 #include "soc/rtc_cntl_reg.h"
 #include "esp_http_server.h"
+#include <FS.h>
+#include <SD_MMC.h>
+#include <Wire.h>
+#include <Adafruit_GFX.h>
+#include <Adafruit_SSD1306.h>
 
 // ===================
 // WiFi Configuration
@@ -47,19 +52,43 @@ volatile bool recordingRequested = false;
 volatile bool isRecording = false;
 unsigned long recordingStartTime = 0;
 
+// SD Card Recording
+bool sdCardAvailable = false;
+File mjpegFile;
+char currentRecordingFile[64] = "";
+unsigned long recordedFrames = 0;
+unsigned long recordingDurationMs = 0;
+bool currentFileDownloaded = false;  // FIX: Track if current recording was downloaded
+
+// MJPEG header for AVI files
+const uint8_t AVI_HEADER[] = {
+  0x52, 0x49, 0x46, 0x46, // RIFF
+  0x00, 0x00, 0x00, 0x00, // File size (updated later)
+  0x41, 0x56, 0x49, 0x20, // AVI 
+  0x4C, 0x49, 0x53, 0x54, // LIST
+  0x44, 0x00, 0x00, 0x00, // List size
+  0x68, 0x64, 0x72, 0x6C, // hdrl
+  0x61, 0x76, 0x69, 0x68, // avih
+  0x38, 0x00, 0x00, 0x00  // avih size
+  // ... (simplified - we'll use a simpler MJPEG approach)
+};
+
 void OnDataRecv(const esp_now_recv_info *info, const uint8_t *incomingDataRaw, int len) {
-  const uint8_t *mac = info->src_addr;
   memcpy(&incomingData, incomingDataRaw, sizeof(incomingData));
-  Serial.printf("ESP-NOW received from %02X:%02X:%02X:%02X:%02X:%02X\n",
-                mac[0], mac[1], mac[2], mac[3], mac[4], mac[5]);
-  Serial.printf("Command: %s, Record: %d\n", incomingData.command, incomingData.record);
+  
+  static unsigned long lastRecordStart = 0;
+  const unsigned long MIN_RECORD_DURATION = 1000; // 1 second minimum
   
   if (incomingData.record || strcmp(incomingData.command, "RECORD") == 0) {
     recordingRequested = true;
-    Serial.println("Recording triggered via ESP-NOW!");
+    lastRecordStart = millis();
+    Serial.println("[ESP-NOW] RECORD");
   } else if (strcmp(incomingData.command, "STOP") == 0) {
+    if (millis() - lastRecordStart < MIN_RECORD_DURATION && isRecording) {
+      return; // Ignore if too soon
+    }
     recordingRequested = false;
-    Serial.println("Recording stop requested via ESP-NOW!");
+    Serial.println("[ESP-NOW] STOP");
   }
 }
 
@@ -103,9 +132,9 @@ void handleSerialCommands() {
     String command = Serial.readStringUntil('\n');
     command.trim();
     command.toUpperCase();
-    
+
     Serial.printf("Serial command received: %s\n", command.c_str());
-    
+
     if (command == "RECORD" || command == "REC" || command == "START") {
       recordingRequested = true;
       Serial.println("Recording triggered via Serial!");
@@ -197,6 +226,9 @@ static esp_err_t stream_handler(httpd_req_t *req) {
       Serial.println("Client disconnected from stream");
       break;
     }
+
+    // FIX: Add small delay to allow main loop to process recording/other tasks
+    delay(10);
   }
 
   return res;
@@ -252,11 +284,28 @@ static esp_err_t control_handler(httpd_req_t *req) {
 // Status Handler
 // ===================
 static esp_err_t status_handler(httpd_req_t *req) {
+  // Get current file size if available
+  unsigned long currentFileSize = 0;
+  if (strlen(currentRecordingFile) > 0 && !isRecording) {
+    File f = SD_MMC.open(currentRecordingFile, FILE_READ);
+    if (f) {
+      currentFileSize = f.size();
+      f.close();
+    }
+  }
+  
   String response = "{";
   response += "\"recording_requested\":" + String(recordingRequested ? "true" : "false") + ",";
+  response += "\"recording_active\":" + String(isRecording ? "true" : "false") + ",";
+  response += "\"sd_card_available\":" + String(sdCardAvailable ? "true" : "false") + ",";
+  response += "\"frames_recorded\":" + String(recordedFrames) + ",";
+  response += "\"current_file\":\"" + String(currentRecordingFile) + "\",";
+  response += "\"current_file_size\":" + String(currentFileSize) + ",";
+  response += "\"file_downloaded\":" + String(currentFileDownloaded ? "true" : "false") + ",";
   response += "\"uptime\":" + String(millis()) + ",";
   response += "\"free_heap\":" + String(ESP.getFreeHeap()) + ",";
-  response += "\"stream_url\":\"http://" + WiFi.localIP().toString() + ":81/stream\"";
+  response += "\"stream_url\":\"http://" + WiFi.localIP().toString() + ":81/stream\",";
+  response += "\"download_url\":\"http://" + WiFi.localIP().toString() + ":81/download\"";
   response += "}";
   
   httpd_resp_set_type(req, "application/json");
@@ -329,7 +378,10 @@ static esp_err_t root_handler(httpd_req_t *req) {
 // ===================
 void startCameraServer() {
   httpd_config_t config = HTTPD_DEFAULT_CONFIG();
-  config.max_uri_handlers = 16;  // Added from working code
+  config.max_uri_handlers = 16;
+  config.stack_size = 8192;        // FIX: Increase stack size (was 4096)
+  config.max_open_sockets = 4;     // FIX: Limit concurrent connections
+  config.lru_purge_enable = true;  // FIX: Enable socket purge on overflow
   config.server_port = 80;
   config.ctrl_port = 32768;
 
@@ -363,6 +415,7 @@ void startCameraServer() {
 
   config.server_port = 81;
   config.ctrl_port = 32769;
+  // Keep increased stack size for download server
 
   httpd_uri_t stream_uri = {
     .uri       = "/stream",
@@ -371,10 +424,131 @@ void startCameraServer() {
     .user_ctx  = NULL
   };
 
+  httpd_uri_t download_uri = {
+    .uri       = "/download",
+    .method    = HTTP_GET,
+    .handler   = download_handler,
+    .user_ctx  = NULL
+  };
+
   if (httpd_start(&stream_httpd, &config) == ESP_OK) {
     httpd_register_uri_handler(stream_httpd, &stream_uri);
+    httpd_register_uri_handler(stream_httpd, &download_uri);
     Serial.println("Stream server started on port 81");
+    Serial.println("Download endpoint: /download");
   }
+}
+
+// ===================
+// Download Handler (for retrieving recorded video)
+// ===================
+static esp_err_t download_handler(httpd_req_t *req) {
+  if (!sdCardAvailable) {
+    httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "SD Card not available");
+    return ESP_FAIL;
+  }
+  
+  // Check if currently recording - if so, return error
+  if (isRecording) {
+    httpd_resp_set_status(req, "503 Service Unavailable");
+    httpd_resp_set_type(req, "text/plain");
+    httpd_resp_send(req, "Recording in progress, try again later", HTTPD_RESP_USE_STRLEN);
+    return ESP_FAIL;
+  }
+  
+  // FIX: Only serve the CURRENT recording file, not any old file
+  if (strlen(currentRecordingFile) == 0) {
+    httpd_resp_send_err(req, HTTPD_404_NOT_FOUND, "No recording made this session");
+    return ESP_FAIL;
+  }
+  
+  // Check if already downloaded
+  if (currentFileDownloaded) {
+    httpd_resp_send_err(req, HTTPD_404_NOT_FOUND, "Video already downloaded");
+    return ESP_FAIL;
+  }
+  
+  // Open the specific file from current recording
+  File videoFile = SD_MMC.open(currentRecordingFile, FILE_READ);
+  
+  if (!videoFile) {
+    httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "Cannot open video file");
+    return ESP_FAIL;
+  }
+  
+  size_t fileSize = videoFile.size();
+  Serial.printf("[Download] Serving: %s (%lu bytes)\n", currentRecordingFile, fileSize);
+  
+  // Reject files that are too small (likely corrupted)
+  if (fileSize < 1024) {
+    Serial.println("[Download] File too small, likely corrupted");
+    videoFile.close();
+    return ESP_FAIL;
+  }
+  
+  // FIX: Use char buffer for Content-Length
+  char contentLengthStr[16];
+  snprintf(contentLengthStr, sizeof(contentLengthStr), "%lu", fileSize);
+  
+  // FIX: Use char buffer for Content-Disposition
+  char dispositionStr[128];
+  String fileNameOnly = String(currentRecordingFile).substring(String(currentRecordingFile).lastIndexOf('/') + 1);
+  snprintf(dispositionStr, sizeof(dispositionStr), "attachment; filename=\"%s\"", fileNameOnly.c_str());
+  
+  // Set headers
+  httpd_resp_set_type(req, "video/x-motion-jpeg");
+  httpd_resp_set_hdr(req, "Content-Disposition", dispositionStr);
+  httpd_resp_set_hdr(req, "Access-Control-Allow-Origin", "*");
+  httpd_resp_set_hdr(req, "Content-Length", contentLengthStr);
+  // FIX: Add keep-alive header to prevent connection close
+  httpd_resp_set_hdr(req, "Connection", "keep-alive");
+  
+  // Send file in chunks (smaller buffer to prevent stack overflow)
+  uint8_t buffer[512];  // FIX: Further reduced from 1024 to 512 for stability
+  size_t totalSent = 0;
+  int chunkCount = 0;
+  
+  while (videoFile.available()) {
+    size_t bytesRead = videoFile.read(buffer, sizeof(buffer));
+    if (bytesRead > 0) {
+      esp_err_t res = httpd_resp_send_chunk(req, (const char*)buffer, bytesRead);
+      if (res != ESP_OK) {
+        Serial.printf("[Download] Send failed at byte %lu (error: %d)\n", totalSent, res);
+        videoFile.close();
+        // Don't return error here - partial download is better than nothing
+        httpd_resp_send_chunk(req, NULL, 0);
+        return ESP_OK;
+      }
+      totalSent += bytesRead;
+      chunkCount++;
+      
+      // Print progress every 100 chunks
+      if (chunkCount % 100 == 0) {
+        Serial.printf("[Download] Progress: %lu/%lu bytes\n", totalSent, fileSize);
+      }
+    }
+    
+    // FIX: Longer delay every 10 chunks to prevent WiFi overload
+    if (chunkCount % 10 == 0) {
+      delay(2);
+    }
+    yield();  // Allow WiFi stack to process
+  }
+  
+  videoFile.close();
+  httpd_resp_send_chunk(req, NULL, 0);  // End response
+  
+  Serial.printf("[Download] Sent %lu/%lu bytes successfully\n", totalSent, fileSize);
+  
+  // FIX: Mark as downloaded if 90% or more received
+  if (totalSent >= fileSize * 0.9) {
+    currentFileDownloaded = true;
+    Serial.println("[Download] File marked as downloaded");
+  } else {
+    Serial.println("[Download] Partial download, can retry");
+  }
+  
+  return ESP_OK;
 }
 
 // ===================
@@ -487,6 +661,9 @@ void setup() {
     esp_now_register_recv_cb(OnDataRecv);
   }
 
+  // Initialize SD Card
+  initSDCard();
+
   // Start servers
   startCameraServer();
 
@@ -500,21 +677,189 @@ void setup() {
 }
 
 // ===================
+// SD Card Functions
+// ===================
+void initSDCard() {
+  Serial.println("\n===================================");
+  Serial.println("Initializing SD Card...");
+  
+  // SD_MMC uses specific pins on ESP32-CAM
+  if (!SD_MMC.begin()) {
+    Serial.println("SD Card Mount Failed!");
+    sdCardAvailable = false;
+    return;
+  }
+  
+  uint8_t cardType = SD_MMC.cardType();
+  if (cardType == CARD_NONE) {
+    Serial.println("No SD Card attached!");
+    sdCardAvailable = false;
+    return;
+  }
+  
+  sdCardAvailable = true;
+  
+  Serial.print("SD Card Type: ");
+  if (cardType == CARD_MMC) {
+    Serial.println("MMC");
+  } else if (cardType == CARD_SD) {
+    Serial.println("SDSC");
+  } else if (cardType == CARD_SDHC) {
+    Serial.println("SDHC");
+  } else {
+    Serial.println("UNKNOWN");
+  }
+  
+  uint64_t cardSize = SD_MMC.cardSize() / (1024 * 1024);
+  Serial.printf("SD Card Size: %lluMB\n", cardSize);
+  
+  // Create recordings directory if it doesn't exist
+  if (!SD_MMC.exists("/recordings")) {
+    SD_MMC.mkdir("/recordings");
+    Serial.println("Created /recordings directory");
+  }
+  
+  Serial.println("SD Card initialized successfully!");
+  Serial.println("===================================\n");
+}
+
+String getNextFileName() {
+  static int fileIndex = 0;
+  char filename[64];
+
+  // FIX: Don't check file existence - just use incrementing counter
+  // This is much faster than SD_MMC.exists() which is very slow
+  snprintf(filename, sizeof(filename), "/recordings/rec_%03d.mjpeg", fileIndex++);
+
+  return String(filename);
+}
+
+bool startSDRecording() {
+  if (!sdCardAvailable) {
+    Serial.println("ERROR: SD Card not available!");
+    return false;
+  }
+
+  if (mjpegFile) {
+    mjpegFile.close();
+  }
+
+  String filename = getNextFileName();
+  strncpy(currentRecordingFile, filename.c_str(), sizeof(currentRecordingFile) - 1);
+  currentRecordingFile[sizeof(currentRecordingFile) - 1] = '\0';
+
+  mjpegFile = SD_MMC.open(filename, FILE_WRITE);
+  if (!mjpegFile) {
+    Serial.printf("ERROR: Failed to open file: %s\n", filename.c_str());
+    return false;
+  }
+
+  recordedFrames = 0;
+  recordingDurationMs = 0;
+  currentFileDownloaded = false;
+
+  Serial.printf("[SD Record] Started: %s\n", filename.c_str());
+  return true;
+}
+
+void stopSDRecording() {
+  if (mjpegFile) {
+    // FIX: Sync and flush before closing
+    mjpegFile.flush();
+    SD_MMC.end();
+    SD_MMC.begin();
+    
+    // Get actual file size
+    File checkFile = SD_MMC.open(currentRecordingFile, FILE_READ);
+    unsigned long actualSize = checkFile ? checkFile.size() : 0;
+    if (checkFile) checkFile.close();
+    
+    mjpegFile.close();
+    recordingDurationMs = millis() - recordingStartTime;
+    
+    // Calculate actual frame rate
+    float fps = (recordingDurationMs > 0) ? (recordedFrames * 1000.0 / recordingDurationMs) : 0;
+    
+    Serial.printf("[SD Record] Saved: %lu frames, %.1f KB, %lu ms (%.1f fps)\n", 
+                  recordedFrames, actualSize/1024.0, recordingDurationMs, fps);
+  }
+}
+
+void recordFrameToSD(camera_fb_t* fb) {
+  if (!mjpegFile || !fb) return;
+
+  static unsigned long lastFrameTime = 0;
+
+  // FIX: Maintain consistent 15 fps (66ms between frames)
+  unsigned long now = millis();
+  unsigned long elapsed = now - lastFrameTime;
+  if (elapsed < 66) {
+    delay(66 - elapsed);
+  }
+  lastFrameTime = millis();
+
+  // Write frame and flush to SD
+  size_t written = mjpegFile.write(fb->buf, fb->len);
+  mjpegFile.flush();
+
+  if (written == fb->len) {
+    recordedFrames++;
+  }
+}
+
+// ===================
 // Main Loop
 // ===================
 void loop() {
   handleSerialCommands();
   
+  // Minimum recording duration (prevents accidental quick stops)
+  static unsigned long recordStartTime = 0;
+  const unsigned long MIN_RECORD_MS = 1000; // 1 second minimum
+  
   // Handle recording state changes
   if (recordingRequested != isRecording) {
+    // Block stop if too soon
+    if (isRecording && !recordingRequested) {
+      if (millis() - recordStartTime < MIN_RECORD_MS) {
+        recordingRequested = true;
+        return;
+      }
+    }
+    
     isRecording = recordingRequested;
     if (isRecording) {
+      recordStartTime = millis();
       recordingStartTime = millis();
-      Serial.println("=== RECORDING STARTED ===");
+      startSDRecording();
+      Serial.println("RECORDING STARTED");
     } else {
-      unsigned long duration = millis() - recordingStartTime;
-      Serial.printf("=== RECORDING STOPPED (Duration: %lu ms) ===\n", duration);
+      stopSDRecording();
+      Serial.println("RECORDING STOPPED");
     }
+  }
+  
+  // If recording to SD, capture frames
+  if (isRecording && sdCardAvailable) {
+    camera_fb_t* fb = esp_camera_fb_get();
+    if (fb) {
+      recordFrameToSD(fb);
+      esp_camera_fb_return(fb);
+    }
+  } else if (isRecording && !sdCardAvailable) {
+    static unsigned long lastSdWarning = 0;
+    if (millis() - lastSdWarning > 1000) {
+      Serial.println("[ERROR] Recording requested but SD card not available!");
+      lastSdWarning = millis();
+    }
+  }
+
+  // Periodic status
+  static unsigned long lastStatusTime = 0;
+  if (millis() - lastStatusTime > 10000) {
+    Serial.printf("[Status] Rec: %s, Frames: %lu\n", 
+                  isRecording ? "YES" : "NO", recordedFrames);
+    lastStatusTime = millis();
   }
 
   // Keep WiFi connection alive

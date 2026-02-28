@@ -1,6 +1,5 @@
 import asyncio
 from deepgram import DeepgramClient
-from deepgram.clients.common.v1.options import BufferSource
 from utils.logger import setup_logger
 import io
 import wave
@@ -17,8 +16,8 @@ class DeepgramClientWrapper:
         if not api_key:
             raise ValueError("Deepgram API key is required")
 
-        # Pass the API key directly to AsyncDeepgramClient
-        self.client = DeepgramClient(api_key)
+        # Pass the API key as a keyword argument (new SDK 5.x API)
+        self.client = DeepgramClient(api_key=api_key)
 
     async def transcribe_audio(self, audio_data):
         """
@@ -27,12 +26,6 @@ class DeepgramClientWrapper:
         :return: Transcribed text
         """
         try:
-            # Define options for the transcription
-            options = {
-                'punctuate': True,
-                'language': 'en-US'
-            }
-
             # The audio data from PyAudio needs to be wrapped in a proper WAV format
             # Create a WAV file in memory with the proper headers
             wav_buffer = io.BytesIO()
@@ -47,10 +40,11 @@ class DeepgramClientWrapper:
             wav_bytes = wav_buffer.getvalue()
 
             # Call the Deepgram API using the correct method for WAV audio data
-            source = BufferSource(buffer=wav_bytes)
-            response = self.client.listen.rest.v("1").transcribe_file(
-                source=source,
-                options=options
+            response = self.client.listen.v1.media.transcribe_file(
+                request=wav_bytes,
+                model="nova-2",
+                language="en-US",
+                punctuate=True,
             )
 
             # Extract transcript from response
@@ -70,12 +64,6 @@ class DeepgramClientWrapper:
         :return: Transcribed text
         """
         try:
-            # Define options for the transcription
-            options = {
-                'punctuate': True,
-                'language': 'en-US'
-            }
-
             # Create a WAV file in memory with the proper headers for ESP32 audio
             wav_buffer = io.BytesIO()
             with wave.open(wav_buffer, 'wb') as wav_file:
@@ -88,10 +76,11 @@ class DeepgramClientWrapper:
             wav_bytes = wav_buffer.getvalue()
 
             # Call the Deepgram API using the correct method for WAV audio data
-            source = BufferSource(buffer=wav_bytes)
-            response = self.client.listen.rest.v("1").transcribe_file(
-                source=source,
-                options=options
+            response = self.client.listen.v1.media.transcribe_file(
+                request=wav_bytes,
+                model="nova-2",
+                language="en-US",
+                punctuate=True,
             )
 
             # Extract transcript from response
