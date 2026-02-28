@@ -102,18 +102,131 @@ uint8_t cameraMAC[] = {0x80, 0xF3, 0xDA, 0x62, 0x36, 0xCC};
 typedef struct { char command[32]; bool record; } struct_message;
 struct_message espNowMessage;
 
+// ========== AUDIO PLAYBACK VIA ESP-NOW (Option 3) ==========
+#define AUDIO_CHUNK_SIZE 200
+typedef struct audio_chunk_msg {
+  char header[4];      // "STAR", "AUDI", or "ENDA"
+  uint16_t chunkNum;
+  uint16_t totalChunks;
+  uint8_t data[AUDIO_CHUNK_SIZE];
+  uint8_t dataLen;
+} audio_chunk_msg;
+
+// Audio playback buffer
+#define PB_BUF_SIZE 32768
+uint8_t pbBuffer[PB_BUF_SIZE];
+volatile uint32_t pbCount = 0;
+volatile bool pbReceiving = false;
+volatile bool pbReady = false;
+int16_t monoSamples[512];
+
 void OnDataSent(const uint8_t *mac, esp_now_send_status_t status) {
   Serial.println(status == ESP_NOW_SEND_SUCCESS ? "ESP-NOW: OK" : "ESP-NOW: FAIL");
+}
+
+// ESP-NOW receive callback for audio
+void OnDataRecv(const esp_now_recv_info_t *info, const uint8_t *incomingDataRaw, int len) {
+  // Check if this is audio data
+  if (len >= 4) {
+    audio_chunk_msg* msg = (audio_chunk_msg*)incomingDataRaw;
+    
+    if (strncmp(msg->header, "STAR", 4) == 0) {
+      // Start of audio - clear buffer and prepare
+      Serial.println("[ESP-NOW Audio] START received");
+      pbCount = 0;
+      pbReceiving = true;
+      pbReady = false;
+      
+      // Switch to speaker mode
+      isPlaybackMode = true;
+      initI2S_Speaker();
+      
+      display.clearDisplay();
+      display.setCursor(0, 0);
+      display.println("Receiving audio...");
+      display.display();
+      return;
+    }
+    
+    if (strncmp(msg->header, "AUDI", 4) == 0 && pbReceiving) {
+      // Audio chunk - add to buffer
+      if (pbCount + msg->dataLen <= PB_BUF_SIZE) {
+        memcpy(&pbBuffer[pbCount], msg->data, msg->dataLen);
+        pbCount += msg->dataLen;
+        
+        // Show progress every 50 chunks
+        if (msg->chunkNum % 50 == 0) {
+          display.setCursor(0, 16);
+          display.printf("Chunk %d/%d", msg->chunkNum, msg->totalChunks);
+          display.display();
+        }
+      }
+      return;
+    }
+    
+    if (strncmp(msg->header, "ENDA", 4) == 0 && pbReceiving) {
+      // End of audio - start playback
+      Serial.printf("[ESP-NOW Audio] END received, %lu bytes to play\n", pbCount);
+      pbReceiving = false;
+      pbReady = true;
+      
+      display.clearDisplay();
+      display.setCursor(0, 0);
+      display.println("Playing audio...");
+      display.display();
+      return;
+    }
+  }
+  
+  // Handle regular ESP-NOW messages (camera trigger)
+  memcpy(&espNowMessage, incomingDataRaw, sizeof(espNowMessage));
+  // ... rest handled in main loop
 }
 
 void initESPNow() {
   if (esp_now_init() != ESP_OK) return;
   esp_now_register_send_cb(OnDataSent);
+  esp_now_register_recv_cb(OnDataRecv);
   esp_now_peer_info_t peerInfo = {};
   memcpy(peerInfo.peer_addr, cameraMAC, 6);
   peerInfo.channel = 0;
   peerInfo.encrypt = false;
   esp_now_add_peer(&peerInfo);
+}
+
+// Play buffered audio from ESP-NOW
+void playESPNowAudio() {
+  if (!pbReady || pbCount == 0) return;
+  
+  uint32_t readPos = 0;
+  
+  Serial.printf("[ESP-NOW Audio] Playing %lu bytes\n", pbCount);
+  
+  while (readPos < pbCount) {
+    uint16_t chunk = min((uint32_t)1024, pbCount - readPos);
+    uint8_t temp[1024];
+    memcpy(temp, &pbBuffer[readPos], chunk);
+    readPos += chunk;
+    
+    // Convert stereo to mono
+    int samples = chunk / 4;
+    for (int i = 0; i < samples; i++) {
+      int16_t left = temp[i*4] | (temp[i*4+1] << 8);
+      int16_t right = temp[i*4+2] | (temp[i*4+3] << 8);
+      monoSamples[i] = (left + right) >> 1;
+    }
+    
+    // Write to I2S
+    size_t written;
+    i2s_write(I2S_NUM_0, monoSamples, samples * 2, &written, portMAX_DELAY);
+  }
+  
+  Serial.println("[ESP-NOW Audio] Playback complete");
+  pbReady = false;
+  pbCount = 0;
+  
+  delay(500);
+  ESP.restart();
 }
 
 void sendCameraTrigger(bool start) {
@@ -766,6 +879,12 @@ void setup() {
 void loop() {
   handleButton();
   handlePrompts();
+  
+  // Handle ESP-NOW audio playback (Option 3)
+  if (pbReady) {
+    playESPNowAudio();
+    return;
+  }
   
   if (isPlaybackMode) {
     handlePlaybackAudio();

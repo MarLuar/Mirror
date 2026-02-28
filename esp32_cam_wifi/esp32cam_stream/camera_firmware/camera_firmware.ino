@@ -60,6 +60,29 @@ unsigned long recordedFrames = 0;
 unsigned long recordingDurationMs = 0;
 bool currentFileDownloaded = false;  // FIX: Track if current recording was downloaded
 
+// ===================
+// AUDIO PLAYBACK FEATURES (Option 3)
+// ===================
+// Audio storage for playback from SD via ESP-NOW
+#define AUDIO_CHUNK_SIZE 200  // Max ESP-NOW payload is ~250 bytes
+char audioPlaybackFile[64] = "";
+bool audioPlaybackRequested = false;
+
+// ESP-NOW peer (main ESP32 MAC address - update this!)
+uint8_t mainESP32MAC[] = {0xB0, 0xCB, 0xD8, 0xC7, 0xC4, 0x6C}; // Main ESP32 MAC address
+
+// Audio chunk message structure for ESP-NOW
+typedef struct audio_chunk_msg {
+  char header[4];      // "AUDI"
+  uint16_t chunkNum;   // Chunk number
+  uint16_t totalChunks; // Total chunks
+  uint8_t data[AUDIO_CHUNK_SIZE]; // Audio data
+  uint8_t dataLen;     // Actual data length in this chunk
+} audio_chunk_msg;
+
+audio_chunk_msg audioMsg;
+bool espNowPeerAdded = false;
+
 // MJPEG header for AVI files
 const uint8_t AVI_HEADER[] = {
   0x52, 0x49, 0x46, 0x46, // RIFF
@@ -374,6 +397,158 @@ static esp_err_t root_handler(httpd_req_t *req) {
 }
 
 // ===================
+// AUDIO HANDLERS (Option 3)
+// ===================
+
+// Handler to receive audio from laptop and save to SD card
+static esp_err_t audio_upload_handler(httpd_req_t *req) {
+  if (!sdCardAvailable) {
+    httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "SD Card not available");
+    return ESP_FAIL;
+  }
+  
+  // Get filename from query string
+  char filename[64] = "/audio_playback.wav";
+  char query[128];
+  if (httpd_req_get_url_query_str(req, query, sizeof(query)) == ESP_OK) {
+    char fname[32];
+    if (httpd_query_key_value(query, "file", fname, sizeof(fname)) == ESP_OK) {
+      snprintf(filename, sizeof(filename), "/recordings/%s", fname);
+    }
+  }
+  
+  // Open file for writing
+  File audioFile = SD_MMC.open(filename, FILE_WRITE);
+  if (!audioFile) {
+    httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "Cannot create audio file");
+    return ESP_FAIL;
+  }
+  
+  Serial.printf("[Audio Upload] Receiving audio to: %s\n", filename);
+  
+  // Receive data in chunks
+  char buffer[1024];
+  int received = 0;
+  int totalReceived = 0;
+  
+  while ((received = httpd_req_recv(req, buffer, sizeof(buffer))) > 0) {
+    audioFile.write((uint8_t*)buffer, received);
+    totalReceived += received;
+  }
+  
+  audioFile.close();
+  
+  // Save filename for playback
+  strncpy(audioPlaybackFile, filename, sizeof(audioPlaybackFile) - 1);
+  audioPlaybackFile[sizeof(audioPlaybackFile) - 1] = '\0';
+  
+  Serial.printf("[Audio Upload] Received %d bytes\n", totalReceived);
+  
+  // Send response
+  httpd_resp_set_type(req, "application/json");
+  httpd_resp_set_hdr(req, "Access-Control-Allow-Origin", "*");
+  char response[128];
+  snprintf(response, sizeof(response), "{\"status\":\"ok\",\"bytes\":%d,\"file\":\"%s\"}", totalReceived, filename);
+  httpd_resp_send(req, response, strlen(response));
+  
+  return ESP_OK;
+}
+
+// Handler to trigger audio playback via ESP-NOW
+static esp_err_t audio_play_handler(httpd_req_t *req) {
+  if (strlen(audioPlaybackFile) == 0) {
+    httpd_resp_send_err(req, HTTPD_404_NOT_FOUND, "No audio file uploaded");
+    return ESP_FAIL;
+  }
+  
+  if (!espNowPeerAdded) {
+    httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "ESP-NOW peer not configured");
+    return ESP_FAIL;
+  }
+  
+  // Trigger playback in main loop
+  audioPlaybackRequested = true;
+  
+  Serial.printf("[Audio Play] Will stream: %s\n", audioPlaybackFile);
+  
+  httpd_resp_set_type(req, "application/json");
+  httpd_resp_set_hdr(req, "Access-Control-Allow-Origin", "*");
+  httpd_resp_send(req, "{\"status\":\"playing\"}", HTTPD_RESP_USE_STRLEN);
+  
+  return ESP_OK;
+}
+
+// Function to stream audio file via ESP-NOW
+void streamAudioViaESPNow() {
+  if (strlen(audioPlaybackFile) == 0) {
+    Serial.println("[Audio Stream] No file to play");
+    audioPlaybackRequested = false;
+    return;
+  }
+  
+  File audioFile = SD_MMC.open(audioPlaybackFile, FILE_READ);
+  if (!audioFile) {
+    Serial.println("[Audio Stream] Cannot open audio file");
+    audioPlaybackRequested = false;
+    return;
+  }
+  
+  size_t fileSize = audioFile.size();
+  uint16_t totalChunks = (fileSize + AUDIO_CHUNK_SIZE - 1) / AUDIO_CHUNK_SIZE;
+  
+  Serial.printf("[Audio Stream] Streaming %lu bytes in %d chunks\n", fileSize, totalChunks);
+  
+  // Send START command
+  strcpy(audioMsg.header, "STAR");
+  audioMsg.chunkNum = 0;
+  audioMsg.totalChunks = totalChunks;
+  audioMsg.dataLen = 0;
+  esp_now_send(mainESP32MAC, (uint8_t*)&audioMsg, sizeof(audioMsg));
+  delay(100); // Give main ESP32 time to prepare
+  
+  // Stream audio chunks
+  uint16_t chunkNum = 0;
+  while (audioFile.available()) {
+    size_t bytesRead = audioFile.read(audioMsg.data, AUDIO_CHUNK_SIZE);
+    if (bytesRead == 0) break;
+    
+    strcpy(audioMsg.header, "AUDI");
+    audioMsg.chunkNum = chunkNum;
+    audioMsg.totalChunks = totalChunks;
+    audioMsg.dataLen = bytesRead;
+    
+    esp_err_t result = esp_now_send(mainESP32MAC, (uint8_t*)&audioMsg, sizeof(audioMsg));
+    if (result != ESP_OK) {
+      Serial.printf("[Audio Stream] Send failed: %d\n", result);
+    }
+    
+    chunkNum++;
+    
+    // Small delay to prevent overwhelming ESP-NOW
+    if (chunkNum % 10 == 0) {
+      delay(5);
+    }
+    
+    // Progress every 50 chunks
+    if (chunkNum % 50 == 0) {
+      Serial.printf("[Audio Stream] Sent chunk %d/%d\n", chunkNum, totalChunks);
+    }
+  }
+  
+  audioFile.close();
+  
+  // Send END command
+  delay(100);
+  strcpy(audioMsg.header, "ENDA");
+  audioMsg.chunkNum = chunkNum;
+  audioMsg.dataLen = 0;
+  esp_now_send(mainESP32MAC, (uint8_t*)&audioMsg, sizeof(audioMsg));
+  
+  Serial.println("[Audio Stream] Complete");
+  audioPlaybackRequested = false;
+}
+
+// ===================
 // Server Configuration
 // ===================
 void startCameraServer() {
@@ -406,11 +581,30 @@ void startCameraServer() {
     .user_ctx  = NULL
   };
 
+  // Audio upload endpoint
+  httpd_uri_t audio_upload_uri = {
+    .uri       = "/audio_upload",
+    .method    = HTTP_POST,
+    .handler   = audio_upload_handler,
+    .user_ctx  = NULL
+  };
+  
+  // Audio play endpoint
+  httpd_uri_t audio_play_uri = {
+    .uri       = "/audio_play",
+    .method    = HTTP_GET,
+    .handler   = audio_play_handler,
+    .user_ctx  = NULL
+  };
+
   if (httpd_start(&camera_httpd, &config) == ESP_OK) {
     httpd_register_uri_handler(camera_httpd, &index_uri);
     httpd_register_uri_handler(camera_httpd, &status_uri);
     httpd_register_uri_handler(camera_httpd, &control_uri);
+    httpd_register_uri_handler(camera_httpd, &audio_upload_uri);
+    httpd_register_uri_handler(camera_httpd, &audio_play_uri);
     Serial.println("HTTP server started on port 80");
+    Serial.println("Audio endpoints: /audio_upload (POST), /audio_play (GET)");
   }
 
   config.server_port = 81;
@@ -659,6 +853,19 @@ void setup() {
   } else {
     Serial.println("ESP-NOW initialized successfully");
     esp_now_register_recv_cb(OnDataRecv);
+    
+    // Add peer for audio playback (main ESP32)
+    // NOTE: You must update mainESP32MAC with your main ESP32's MAC address!
+    esp_now_peer_info_t peerInfo = {};
+    memcpy(peerInfo.peer_addr, mainESP32MAC, 6);
+    peerInfo.channel = 0;
+    peerInfo.encrypt = false;
+    if (esp_now_add_peer(&peerInfo) == ESP_OK) {
+      espNowPeerAdded = true;
+      Serial.println("ESP-NOW peer added for audio playback");
+    } else {
+      Serial.println("WARNING: Failed to add ESP-NOW peer for audio");
+    }
   }
 
   // Initialize SD Card
@@ -812,6 +1019,11 @@ void recordFrameToSD(camera_fb_t* fb) {
 // ===================
 void loop() {
   handleSerialCommands();
+  
+  // Handle audio playback request (Option 3)
+  if (audioPlaybackRequested) {
+    streamAudioViaESPNow();
+  }
   
   // Minimum recording duration (prevents accidental quick stops)
   static unsigned long recordStartTime = 0;

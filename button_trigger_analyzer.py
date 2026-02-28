@@ -497,6 +497,63 @@ class ButtonTriggerAnalyzer:
         except Exception as e:
             print(f"[Button Trigger] Playback error: {e}")
     
+    # ========== OPTION 3: Audio via CAM SD + ESP-NOW ==========
+    
+    def send_audio_to_cam(self, wav_path, filename="playback.wav"):
+        """Send audio file to ESP32-CAM for storage on SD card"""
+        import urllib.request
+        
+        print(f"\n[Option 3] Sending audio to CAM SD card: {filename}")
+        
+        try:
+            # Read audio file
+            with open(wav_path, 'rb') as f:
+                audio_data = f.read()
+            
+            # Build URL
+            url = f"http://{self.cam_ip}/audio_upload?file={filename}"
+            
+            # Create request
+            req = urllib.request.Request(
+                url,
+                data=audio_data,
+                headers={'Content-Type': 'application/octet-stream'},
+                method='POST'
+            )
+            
+            # Send
+            with urllib.request.urlopen(req, timeout=30) as response:
+                result = response.read().decode()
+                print(f"[Option 3] CAM response: {result}")
+                return True
+                
+        except Exception as e:
+            print(f"[Option 3] Failed to send audio to CAM: {e}")
+            return False
+    
+    def play_audio_from_cam(self):
+        """Trigger ESP32-CAM to stream audio via ESP-NOW to main ESP32"""
+        import urllib.request
+        
+        print("\n[Option 3] Triggering playback from CAM via ESP-NOW...")
+        
+        try:
+            url = f"http://{self.cam_ip}/audio_play"
+            
+            with urllib.request.urlopen(url, timeout=10) as response:
+                result = response.read().decode()
+                print(f"[Option 3] CAM response: {result}")
+                
+                # Wait for playback to complete (approximate)
+                print("[Option 3] Waiting for playback to complete...")
+                time.sleep(8)  # Wait for ESP-NOW transfer + playback
+                
+                return True
+                
+        except Exception as e:
+            print(f"[Option 3] Failed to trigger playback: {e}")
+            return False
+    
     async def process_recording(self, audio_data):
         """Process a complete recording - returns audio file path for video stitching"""
         if len(audio_data) < 1000:
